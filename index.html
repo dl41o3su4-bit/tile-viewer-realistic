@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>磁磚高擬真觀察器 - 客廳 80×80</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #111; font-family: system-ui, sans-serif; }
+  #info { position: absolute; top: 12px; left: 12px; color: #fff; background: rgba(0,0,0,0.55); padding: 12px 16px; border-radius: 8px; font-size: 14px; max-width: 320px; line-height: 1.5; z-index: 10; }
+  #controls { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); color: #fff; padding: 10px 16px; border-radius: 8px; display: flex; gap: 16px; align-items: center; z-index: 10; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="info">
+  <strong>客廳 80×80 淺灰石紋</strong><br>
+  空間約 4.2 × 3.6 m<br>
+  使用 Poly Haven marble_tiles PBR<br>
+  單指拖曳旋轉 · 滾輪縮放<br>
+  這是即時 WebGL 最高可行擬真度
+</div>
+<div id="controls">
+  <label>粗糙度 <input type="range" id="rough" min="0.1" max="0.8" step="0.05" value="0.25"></label>
+  <span id="roughVal">0.25</span>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a1a);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(3.5, 1.6, 4.2);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.8, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2 - 0.05;
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+
+const dir = new THREE.DirectionalLight(0xfff5e6, 1.2);
+dir.position.set(4, 6, 3);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+scene.add(dir);
+
+const roomW = 4.2, roomD = 3.6, tile = 0.8;
+const repeatX = roomW / tile;
+const repeatZ = roomD / tile;
+
+const loader = new THREE.TextureLoader();
+loader.setCrossOrigin("anonymous");
+
+const diff = loader.load("https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/marble_tiles/marble_tiles_diff_2k.jpg");
+const nor = loader.load("https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/marble_tiles/marble_tiles_nor_gl_2k.jpg");
+const rough = loader.load("https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/marble_tiles/marble_tiles_rough_2k.jpg");
+
+[diff, nor, rough].forEach(t => {
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, repeatZ);
+  t.anisotropy = 16;
+});
+diff.colorSpace = THREE.SRGBColorSpace;
+
+const floorMat = new THREE.MeshPhysicalMaterial({
+  map: diff,
+  normalMap: nor,
+  roughnessMap: rough,
+  roughness: 0.25,
+  metalness: 0.0,
+  clearcoat: 0.1,
+  clearcoatRoughness: 0.3,
+  envMapIntensity: 1.0
+});
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(roomW, roomD), floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2f0eb, roughness: 0.7 });
+const wallH = 2.7;
+function addWall(w, h, x, y, z, ry) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.12), wallMat);
+  m.position.set(x, y, z);
+  m.rotation.y = ry;
+  m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+}
+addWall(roomW, wallH, 0, wallH/2, -roomD/2, 0);
+addWall(roomW, wallH, 0, wallH/2, roomD/2, 0);
+addWall(roomD, wallH, -roomW/2, wallH/2, 0, Math.PI/2);
+addWall(roomD, wallH, roomW/2, wallH/2, 0, Math.PI/2);
+
+const sofa = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 0.85), new THREE.MeshStandardMaterial({ color: 0xd4cfc6, roughness: 0.6 }));
+sofa.position.set(-0.6, 0.35, -0.9);
+sofa.castShadow = true;
+scene.add(sofa);
+
+const table = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.45, 0.7), new THREE.MeshStandardMaterial({ color: 0xc8b8a0, roughness: 0.5 }));
+table.position.set(0.8, 0.225, 0.4);
+table.castShadow = true;
+scene.add(table);
+
+const roughSlider = document.getElementById("rough");
+const roughVal = document.getElementById("roughVal");
+roughSlider.oninput = () => {
+  const v = parseFloat(roughSlider.value);
+  floorMat.roughness = v;
+  roughVal.textContent = v.toFixed(2);
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.onresize = () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+};
+</script>
+</body>
+</html>
