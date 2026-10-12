@@ -19,7 +19,7 @@ const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.m
 let quality = params.get('q') || (isMobile ? 'mobile' : 'high');
 
 // ---------- asset loading (assets stored as base64 text so the repo can be maintained through the GitHub API) ----------
-const VER = '3';
+const VER = '4';
 let loadedCount = 0, totalCount = 1;
 function progress() { $('loadtxt').textContent = `載入中… ${Math.round(100 * loadedCount / totalCount)}%`; }
 async function fetchB64(path) {
@@ -51,7 +51,7 @@ async function loadImage(path, type = 'image/jpeg') {
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.92;
+renderer.toneMappingExposure = 0.85;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
@@ -120,7 +120,12 @@ function getVariants(styleKey, pw, ph) {
   const st = STYLES[styleKey], out = [];
   for (let v = 0; v < 4; v++) {
     const c = document.createElement('canvas'); c.width = pw; c.height = ph; const ctx = c.getContext('2d');
-    if (st.kind === 'marble') {
+    if (st.kind === 'photo') {
+      const img = st.imgs[v % st.imgs.length], t = Math.floor(v / st.imgs.length) % 4;
+      ctx.save(); ctx.translate(pw / 2, ph / 2);
+      if (t === 1) ctx.rotate(Math.PI); if (t === 2) ctx.scale(-1, 1); if (t === 3) ctx.scale(1, -1);
+      ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph); ctx.restore();
+    } else if (st.kind === 'marble') {
       const n = makeNoise(301 + v * 13), n2 = makeNoise(77 + v), R = rand(41 + v * 3);
       const id = ctx.createImageData(pw, ph), d = id.data, t = st.tint, ppm = pw / st.size[0], b = st.bright || 1.0;
       const ang = R() * Math.PI, ca = Math.cos(ang), sa = Math.sin(ang), ox = R() * 50, oy = R() * 50;
@@ -215,12 +220,15 @@ function bakeTiles(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
     }
   }
   const depth = 0.0025 * ppm * 0.9, slip = st.slip;
+  const bump = st.kind === 'photo' ? (st.bump || 0.5) : 0; let Lum = null;
+  if (bump) { Lum = new Float32Array(cw * ch); for (let i = 0; i < cw * ch; i++) Lum[i] = (A[i * 4] + A[i * 4 + 1] + A[i * 4 + 2]) / 765; }
   for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
     const i = y * cw + x, j = i * 4;
     let h = Hh[i];
     const hx = Hh[y * cw + Math.min(cw - 1, x + 1)] - Hh[y * cw + Math.max(0, x - 1)];
     const hy = Hh[Math.max(0, y - 1) * cw + x] - Hh[Math.min(ch - 1, y + 1) * cw + x];
     let nx = -hx * depth, ny = -hy * depth;
+    if (bump && h > 0.9) { nx -= (Lum[y * cw + Math.min(cw - 1, x + 1)] - Lum[y * cw + Math.max(0, x - 1)]) * bump * 2.0; ny -= (Lum[Math.max(0, y - 1) * cw + x] - Lum[Math.min(ch - 1, y + 1) * cw + x]) * bump * 2.0; }
     if (slip && h > 0.9) { const mx = x / ppm * 300, my = y / ppm * 300; nx += (n(mx, my) - n(mx + 1, my)) * 0.6; ny += (n(mx, my) - n(mx, my + 1)) * 0.6; }
     const l = Math.hypot(nx, ny, 1);
     Nd[j] = (nx / l * 0.5 + 0.5) * 255; Nd[j + 1] = (ny / l * 0.5 + 0.5) * 255; Nd[j + 2] = (1 / l * 0.5 + 0.5) * 255; Nd[j + 3] = 255;
@@ -287,8 +295,8 @@ function initMaterials() {
   M.glass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.02, transmission: 1, thickness: 0.008, ior: 1.5, metalness: 0, transparent: true, opacity: 1, envMapIntensity: 1.2, side: THREE.DoubleSide });
   M.windowGlass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0, transmission: 1, thickness: 0.004, transparent: true, side: THREE.DoubleSide });
   M.frame = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.45, metalness: 0.6 });
-  M.sky = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.75, 3.0), toneMapped: true });
-  M.emit = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xfff3e0, emissiveIntensity: 8 });
+  M.sky = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.0, 2.9, 2.7), toneMapped: true });
+  M.emit = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xfff0dc, emissiveIntensity: 9 });
   M.tube = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xf4f8ff, emissiveIntensity: 6 });
   M.skirting = new THREE.MeshStandardMaterial({ color: 0xf4f3f0, roughness: 0.4 });
   M.towel = (() => { const n = makeNoise(21), s = 256; const c = noiseCanvas(s, s, d => { for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) { const i = (y * s + x) * 4, a = n(x * 0.9, y * 0.9), b = ((x + y) % 4 < 2) ? 0.1 : -0.1; const v = a + b; d[i] = d[i + 1] = 128 + v * 90; d[i + 2] = 255; d[i + 3] = 255; } });
@@ -313,13 +321,13 @@ function box(w, h, d, mat, x, y, z, parent, opts = {}) {
 
 // ---------- room shell ----------
 let room = null, roomKey = params.get('room') || 'living';
-const state = { style: null, pattern: 'grid', groutMM: 3, groutHex: '#b9b5ae', rough: null, polished: true };
+const state = { wallStyle: null, style: null, pattern: 'grid', groutMM: 3, groutHex: '#b9b5ae', rough: null, polished: true };
 const ROOMS = {
-  living: { name: '客廳＋開放式廚房 4.2×3.6 m', W: 4.2, D: 3.6, H: 2.8, floor: 'marble80', pattern: 'grid', grout: '#c9c5bd', groutMM: 2, wall: 0xe8e4dc,
+  living: { name: '客廳＋開放式廚房 4.2×3.6 m', W: 4.2, D: 3.6, H: 2.8, floor: 'ayun1', pattern: 'grid', grout: '#c9c5bd', groutMM: 2, wall: 0xe8e3db,
     cam: [1.55, 1.5, 1.72], target: [-0.7, 0.75, -0.6] },
-  bath: { name: '浴室 2.6×2.2×2.4 m', W: 2.6, D: 2.2, H: 2.4, floor: 'quartz30', pattern: 'grid', grout: '#8f8a83', groutMM: 3, wallTile: 'wall3060', wallPattern: 'half',
+  bath: { name: '浴室 2.6×2.2×2.4 m', W: 2.6, D: 2.2, H: 2.4, floor: 'nt3202', pattern: 'grid', grout: '#8f8a83', groutMM: 3, wallTile: 'jl3632', wallPattern: 'half',
     cam: [-1.1, 1.45, 0.95], target: [0.25, 0.85, -0.55] },
-  garage: { name: '車庫 5.0×4.0 m', W: 5.0, D: 4.0, H: 2.8, floor: 'grey3060', pattern: 'half', grout: '#5d5d5b', groutMM: 3, wall: 0xc9c7c2,
+  garage: { name: '車庫 5.0×4.0 m', W: 5.0, D: 4.0, H: 2.8, floor: 'oak', pattern: 'half', grout: '#6b6863', groutMM: 3, wall: 0xc9c6c0,
     cam: [2.35, 2.0, 1.9], target: [-0.9, 0.5, -1.0] },
 };
 
@@ -374,7 +382,7 @@ function makeWalls(R, cfg, group) {
 function downlight(group, x, z, H, intensity = 6, shadow = false) {
   const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.01, 32), M.white); ring.position.set(x, H - 0.004, z); group.add(ring);
   const disk = new THREE.Mesh(new THREE.CircleGeometry(0.04, 32), M.emit); disk.rotation.x = Math.PI / 2; disk.position.set(x, H - 0.0095, z); group.add(disk);
-  const s = new THREE.SpotLight(0xffe9cf, intensity, 0, Math.PI / 3.2, 0.85, 2); s.position.set(x, H - 0.03, z); s.target.position.set(x, 0, z);
+  const s = new THREE.SpotLight(0xffe6cc, intensity * 1.3, 0, Math.PI / 3.2, 0.85, 2); s.position.set(x, H - 0.03, z); s.target.position.set(x, 0, z);
   s.castShadow = shadow; if (shadow) { s.shadow.mapSize.set(1024, 1024); s.shadow.bias = -0.0004; s.shadow.radius = 4; s.shadow.camera.near = 0.1; }
   group.add(s, s.target);
 }
@@ -419,7 +427,7 @@ function applyFloor() {
   m.userData.u.uRefl.value = (floorReflector && state.polished) ? 1.0 : 0.0;
   m.normalScale.set(1, 1); m.needsUpdate = true;
   for (const wm of wallTileMeshes) {
-    const wd = wm.userData.wdef; const tt = bakeTiles(wd.len, R.H, R.wallTile, R.wallPattern, state.groutMM, '#d9d6d0', wd.seed);
+    const wd = wm.userData.wdef; const tt = bakeTiles(wd.len, R.H, state.wallStyle, R.wallPattern, state.groutMM, '#d9d6d0', wd.seed);
     const mm = wm.material; ['map', 'normalMap', 'roughnessMap'].forEach(k => { if (mm[k]) mm[k].dispose(); mm[k] = tt[k]; }); mm.needsUpdate = true;
   }
   renderer.shadowMap.needsUpdate = true;
@@ -430,7 +438,7 @@ async function buildRoom(key) {
   roomKey = key; const R = ROOMS[key];
   if (room) { scene.remove(room); room.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   room = new THREE.Group(); scene.add(room); wallTileMeshes = [];
-  state.style = R.floor; state.pattern = R.pattern; state.groutHex = R.grout; state.groutMM = R.groutMM; state.rough = null; state.polished = !!STYLES[R.floor].polished;
+  state.wallStyle = R.wallTile || null; state.style = R.floor; state.pattern = R.pattern; state.groutHex = R.grout; state.groutMM = R.groutMM; state.rough = null; state.polished = !!STYLES[R.floor].polished;
   syncUI();
   const { W, D, H } = R;
   const wm = () => plasterMat(R.wall || 0xeeeeee);
@@ -455,13 +463,13 @@ async function buildRoom(key) {
   buildFloor(room, R);
 
   // sun through window
-  sun = new THREE.DirectionalLight(0xfff1dc, key === 'bath' ? 2.0 : 3.2);
+  sun = new THREE.DirectionalLight(0xfff0dc, key === 'bath' ? 2.0 : 3.2);
   const sp = key === 'bath' ? [-6, 6, -1.5] : key === 'garage' ? [3.5, 5.5, -7] : [-2.5, 4.5, -7];
   sun.position.set(...sp); sun.target.position.set(0, 0, 0);
   sun.castShadow = true; const ms = quality === 'high' ? 2048 : 1024; sun.shadow.mapSize.set(ms, ms);
   Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 20 }); sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
   room.add(sun, sun.target);
-  room.add(new THREE.HemisphereLight(0xfff8ef, 0x8a7f72, 0.25));
+  room.add(new THREE.HemisphereLight(0xfff6ec, 0x857766, 0.18));
 
   const jobs = [];
   if (key === 'living') {
@@ -548,8 +556,15 @@ async function buildRoom(key) {
     downlight(room, 0, 0.3, H, 6, true);
     jobs.push(place(room, 'covered_car', { x: -0.35, z: 0.45, ry: Math.PI / 2 }));
     jobs.push(place(room, 'steel_frame_shelves_01', { x: -1.3, z: -D / 2 + 0.3, fitH: 1.9 }).then(async sh => {
-      const s = sh.userData.size; await place(room, 'cardboard_box_01', { x: -1.6, z: -D / 2 + 0.3, ry: Math.PI / 2, y: s.y * 0.0 });
-      await place(room, 'cardboard_box_01', { x: -1.1, z: -D / 2 + 0.28, ry: Math.PI / 2 + 0.2, y: 0 }); }));
+      sh.updateMatrixWorld(true); const sz = sh.userData.size, rc = new THREE.Raycaster(), levels = [];
+      for (const dx of [-0.25, 0.0, 0.25]) { rc.set(new THREE.Vector3(-1.3 + dx * sz.x, 3, -D / 2 + 0.3), new THREE.Vector3(0, -1, 0));
+        for (const h of rc.intersectObject(sh, true)) if (!levels.some(l => Math.abs(l - h.point.y) < 0.08)) levels.push(h.point.y); }
+      levels.sort((a, b) => a - b);
+      const items = [['cardboard_box_01', 0.75, Math.PI / 2], ['metal_toolbox', 1, 0], ['multi_cleaner_5_litre', 1, 0.3], ['spray_paint_bottles', 1, 0], ['cleaner_tin_01', 1, 0], ['cardboard_box_01', 0.7, Math.PI / 2 + 0.1], ['plastic_jerrycan', 0.8, 0.2], ['metal_toolbox', 1, 0.1]];
+      let k = 0; const xs = [-1.3 - sz.x * 0.27, -1.3 + sz.x * 0.22];
+      for (const ly of levels.filter(l => l < 1.8)) for (const x of xs) { const [nm, sc, ry] = items[k++ % items.length]; await place(room, nm, { x, z: -D / 2 + 0.3, y: ly + 0.003, s: sc, ry }); }
+      await place(room, 'cardboard_box_01', { x: -0.3, z: -D / 2 + 0.3, ry: 0.3 });
+      await place(room, 'cardboard_box_01', { x: -0.3, z: -D / 2 + 0.3, y: 0.34, ry: -0.2, s: 0.85 }); }));
     jobs.push(place(room, 'metal_tool_chest', { x: 1.95, z: -D / 2 + 0.3, s: 1.3 }));
     jobs.push(place(room, 'plastic_jerrycan', { x: 1.35, z: -D / 2 + 0.25 }));
     for (let i = 0; i < 3; i++) jobs.push(place(room, 'old_tyre', { x: -2.05, z: 1.4, y: i * 0.165, rx: Math.PI / 2, ry: i * 0.7 }));
@@ -575,9 +590,14 @@ function syncUI() {
   $('polished').checked = state.polished;
   document.querySelectorAll('.roomBtn').forEach(b => b.classList.toggle('on', b.dataset.room === roomKey));
   $('quality').value = quality;
+  $('wallRow').style.display = state.wallStyle ? '' : 'none'; if (state.wallStyle) $('wallStyle').value = state.wallStyle;
 }
 function initUI() {
-  const sel = $('style'); for (const [k, v] of Object.entries(STYLES)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name; sel.appendChild(o); }
+  const sel = $('style');
+  const groups = [['PDF 郭怡華案（實際磁磚照片）', k => STYLES[k].kind === 'photo'], ['通用材質', k => STYLES[k].kind !== 'photo']];
+  for (const target of [sel, $('wallStyle')]) for (const [label, f] of groups) { const og = document.createElement('optgroup'); og.label = label;
+    for (const [k, v] of Object.entries(STYLES)) if (f(k)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name + (v.page ? `（PDF p.${v.page}）` : ''); og.appendChild(o); } target.appendChild(og); }
+  $('wallStyle').onchange = e => { state.wallStyle = e.target.value; applyFloor(); };
   $('toggle').onclick = () => $('panel').classList.toggle('collapsed');
   if (isMobile || params.has('shot')) $('panel').classList.add('collapsed');
   document.querySelectorAll('.roomBtn').forEach(b => b.onclick = () => buildRoom(b.dataset.room));
@@ -603,11 +623,19 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; if 
 (async function main() {
   try {
     totalCount = 0;
-    initUI(); initMaterials(); setupPipeline();
-    const hdrBuf = await fetchB64('lebombo_1k.hdr');
+    initMaterials(); setupPipeline();
+    const [hdrBuf, presets] = await Promise.all([fetchB64('lebombo_1k.hdr'), fetch('assets/tiles.json?v=' + VER).then(r => r.json())]);
+    const photoStyles = {};
+    await Promise.all(Object.entries(presets).map(async ([k, p]) => {
+      const imgs = await Promise.all(p.data.map(async u => { const im = new Image(); im.src = u; await im.decode(); return im; }));
+      photoStyles[k] = { name: p.name, page: p.page, size: p.size, rough: p.rough, slip: p.slip, kind: 'photo', polished: p.polished, bump: p.bump, imgs };
+    }));
+    for (const k of Object.keys(STYLES)) { const v = STYLES[k]; delete STYLES[k]; photoStyles[k] = v; }
+    Object.assign(STYLES, photoStyles);
+    initUI();
     const hdr = new RGBELoader().parse(hdrBuf); const tex = new THREE.DataTexture(hdr.data, hdr.width, hdr.height, THREE.RGBAFormat, hdr.type);
     tex.colorSpace = THREE.LinearSRGBColorSpace; tex.mapping = THREE.EquirectangularReflectionMapping; tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.needsUpdate = true; tex.flipY = true;
-    const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(tex).texture; scene.environmentIntensity = 0.55;
+    const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(tex).texture; scene.environmentIntensity = 0.45;
     await buildRoom(roomKey);
     $('loading').style.display = 'none';
     window.__ready = true;
