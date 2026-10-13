@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>謝雲卿案 下營598-3 一樓 3D 漫遊</title>
+<title>謝雲卿案 下營598-3 1F＋2F 3D 漫遊</title>
 <style>
   html,body { margin:0; height:100%; overflow:hidden; background:#0d0d0f; font-family:system-ui,-apple-system,"PingFang TC","Noto Sans TC",sans-serif; touch-action:none; -webkit-user-select:none; user-select:none; }
   canvas { display:block; }
@@ -28,25 +28,37 @@
 <button id="modeBtn">切換</button>
 <div id="joy"></div>
 <div id="panel">
-  <h3>謝雲卿案｜下營營和段598-3 一樓</h3>
-  <div>快速移動：
-    <button class="go" data-p="230,1120,0">車庫入口</button>
-    <button class="go" data-p="380,720,0">玄關</button>
-    <button class="go" data-p="330,610,0">客廳</button>
-    <button class="go" data-p="170,340,0">廚房</button>
-    <button class="go" data-p="170,40,1.5708">樓梯口</button>
-    <button class="go" data-p="300,-200,3.1416">後院</button>
+  <h3>謝雲卿案｜下營營和段598-3 1F／2F</h3>
+  <div>樓層：
+    <button class="go" data-p="330,610,0,1">一樓 1F</button>
+    <button class="go" data-p="380,470,0.35,2">二樓 2F</button>
   </div>
+  <div>1F：
+    <button class="go" data-p="230,1120,0,1">車庫入口</button>
+    <button class="go" data-p="360,720,0,1">玄關</button>
+    <button class="go" data-p="330,610,0,1">客廳</button>
+    <button class="go" data-p="170,340,0,1">廚房</button>
+    <button class="go" data-p="170,40,1.5708,1">樓梯口</button>
+    <button class="go" data-p="300,-200,3.1416,1">後院</button>
+  </div>
+  <div>2F：
+    <button class="go" data-p="380,470,0.35,2">起居室</button>
+    <button class="go" data-p="370,700,2.2,2">主臥室</button>
+    <button class="go" data-p="380,560,1.5708,2">浴廁</button>
+    <button class="go" data-p="260,60,0,2">陽台</button>
+    <button class="go" data-p="200,455,1.5708,2">樓梯</button>
+  </div>
+  <div class="row">俯瞰樓層 <select id="orbitLv"><option value="1">1F</option><option value="2">2F</option></select></div>
   <div class="row">區域 <select id="zone"></select></div>
   <div class="row">磁磚 <select id="style"></select></div>
   <div class="row">鋪法 <select id="pattern"><option value="grid">直鋪（對縫）</option><option value="half">1/2 錯縫</option><option value="third">1/3 錯縫</option></select></div>
   <div class="row">縫寬 <input type="range" id="groutW" min="1" max="10" step="0.5"><span id="groutWv"></span></div>
   <div class="row">縫色 <input type="color" id="groutC"></div>
   <div class="row">畫質 <select id="quality"><option value="high">高（電腦）</option><option value="mobile">手機</option></select></div>
-  <small>依 p.3 一層平面圖（1:100）、p.7 剖面、p.11 材料粉刷表建模；磁磚以郭怡華案產品代用。<br>手機：左下拖曳＝移動，右側拖曳＝轉頭。電腦：WASD／方向鍵＋滑鼠拖曳。<br>家具：Poly Haven CC0。</small>
+  <small>依 p.3 一／二層平面圖（1:100）、p.8 樓梯、p.7 剖面、p.11 材料粉刷表建模；磁磚以郭怡華案產品代用。<br>手機：左下拖曳＝移動，右側拖曳＝轉頭。電腦：WASD／方向鍵＋滑鼠拖曳。<br>家具：Poly Haven CC0。</small>
   <div><a href="../" style="color:#d9b26a">← 磁磚模擬器</a></div>
 </div>
 <div id="hint">一樓 1F｜層高 340 cm</div>
-<script>Promise.all([0,1,2,3].map(i=>fetch("x"+i+".js?v=2").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
+<script>Promise.all([0,1,2,3].map(i=>fetch("x"+i+".js?v=3").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
 </body>
 </html>
