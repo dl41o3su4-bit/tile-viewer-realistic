@@ -31,11 +31,11 @@
   <h3>謝雲卿案｜下營營和段598-3 一樓</h3>
   <div>快速移動：
     <button class="go" data-p="230,1120,0">車庫入口</button>
-    <button class="go" data-p="380,720,0.24">玄關</button>
-    <button class="go" data-p="380,560,1.17">客廳</button>
-    <button class="go" data-p="250,200,-1.3">廚房</button>
-    <button class="go" data-p="160,40,2.54">樓梯口</button>
-    <button class="go" data-p="300,-150,2.7">後院</button>
+    <button class="go" data-p="380,720,0">玄關</button>
+    <button class="go" data-p="330,610,0">客廳</button>
+    <button class="go" data-p="170,340,0">廚房</button>
+    <button class="go" data-p="170,40,1.5708">樓梯口</button>
+    <button class="go" data-p="300,-200,3.1416">後院</button>
   </div>
   <div class="row">區域 <select id="zone"></select></div>
   <div class="row">磁磚 <select id="style"></select></div>
@@ -47,6 +47,6 @@
   <div><a href="../" style="color:#d9b26a">← 磁磚模擬器</a></div>
 </div>
 <div id="hint">一樓 1F｜層高 340 cm</div>
-<script type="module" src="xie.js?v=1"></script>
+<script>Promise.all([0,1,2,3].map(i=>fetch("x"+i+".js?v=2").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
 </body>
 </html>
