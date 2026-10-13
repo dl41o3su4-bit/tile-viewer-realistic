@@ -360,9 +360,10 @@ const ZONES = {
   bathwall: { label: '浴廁壁 W2（30×60 石英磚）', style: 'jl3632', pattern: 'half', groutMM: 2, groutHex: '#d9d6d0' },
   stair:  { label: '樓梯 F3（20×20，踏階 20×26）', style: 'nt3201_20', pattern: 'grid', groutMM: 2, groutHex: '#9a958e' },
   yard:   { label: '後院（PDF 未列，暫用 歐克石灰）', style: 'oak', pattern: 'grid', groutMM: 3, groutHex: '#6b6863' },
-  room2:  { label: '2F 起居室／臥室 F1（30×60 石英磚）', style: 'jl3682', pattern: 'half', groutMM: 2, groutHex: '#a9a49c' },
-  bath2:  { label: '2F 浴廁 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 2, groutHex: '#8f8a83' },
-  bath2wall: { label: '2F 浴廁壁 W2（30×60 石英磚）', style: 'jl3632', pattern: 'half', groutMM: 2, groutHex: '#d9d6d0' },
+  terrace: { label: '3F 露臺 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 3, groutHex: '#8f8a83' },
+  room2:  { label: '2F／3F 室內 F1（30×60 石英磚）', style: 'jl3682', pattern: 'half', groutMM: 2, groutHex: '#a9a49c' },
+  bath2:  { label: '2F／3F 浴廁 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 2, groutHex: '#8f8a83' },
+  bath2wall: { label: '2F／3F 浴廁壁 W2（30×60 石英磚）', style: 'jl3632', pattern: 'half', groutMM: 2, groutHex: '#d9d6d0' },
   balcony: { label: '2F 陽台 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 3, groutHex: '#8f8a83' },
 };
 for (const k in ZONES) zones[k] = { ...ZONES[k], meshes: [] };
@@ -447,31 +448,44 @@ async function put(name, x, z, o = {}) { return place(house, name, { ...o, x: W(
 
 // stair per p.8 壹層樓梯平面圖: UP17 starts on a landing 91cm from Ⓐ (z 10..91), then risers 1–15 straight (+z, tread 22, x 20..105, 80 wide)
 // to a landing (108 deep, z 374..482, h=300 over the bathroom), then risers 16–17 turn right (+x, tread 22) to 2FL (+340).
-const RISE = 0.2, ST = { x0: 20, x1: 105, zL: 91, tread: 22, nFlight: 14, landZ0: 399, landZ1: 507 };
-const ST2 = { zL: 91, tread: 22, landZ0: 421, landZ1: 507 }, R2s = 3.2 / 18;
+// v4 re-measure (p.3 1F/2F plans): flight top / landing start at z≈385, landing ends at the 2F bathroom wall (z≈480, '95' on 2F); 17 risers kept → bottom landing 77 (p.8 shows 91)
+const RISE = 0.2, ST = { x0: 20, x1: 105, zL: 77, tread: 22, nFlight: 14, landZ0: 385, landZ1: 475 };
+// 2F→3F per p.4 參層: UP17 on 2F, risers 1–13 straight (+z, tread 22, first riser at z 111), landing z 375..507, risers 14–17 turn toward ② (x 110..200) to 3FL
+const ST2 = { zL: 111, tread: 22, n: 12, landZ0: 375, landZ1: 475, x1: 110 }, R3 = 3.2 / 17;
+const F3 = 6.6, F3w = 6.5, RF = 9.8;
 function planXZ(xw, zw) { return [230 - xw * 100, zw * 100 + 500]; }
 function h1At(x, z) { // 1F + 1F→2F stair
   if (z >= ST.landZ0 && z <= ST.landZ1 && x >= -5 && x <= 149) { if (x <= 105) return 3.0; if (x <= 127) return 3.2; return 3.4; }
   if (x >= -5 && x <= 108 && z >= 10 && z < ST.landZ0) { if (z < ST.zL) return 0; return Math.min(ST.nFlight, Math.floor((z - ST.zL) / ST.tread) + 1) * RISE; }
   if (z < 0 || z > 805 || (z > 620 && x < 300)) return -0.1; return 0;
 }
-function h2At(x, z) { // 2F (FL 3.4, wet 3.3) + 2F→3F flight
+function inBay(x, z) { const s1 = (333 - 152) * (z - 973) - (1035 - 973) * (x - 152), s2 = (383 - 333) * (z - 1035) - (973 - 1035) * (x - 333); return s1 <= 0 && s2 <= 0; }
+function h2At(x, z) { // 2F (FL 3.4, wet 3.3) + 2F→3F flight & landing
   if (x < -5 || x > 465 || z < -160 || z > 1035) return null;
   if (z < -10) return 3.3;
   if (z < 10) return 3.4;
-  if (x < 105 && z >= ST2.zL && z < 512) { if (z < ST2.landZ0) return 3.4 + (Math.floor((z - ST2.zL) / ST2.tread) + 1) * R2s; return z < ST2.landZ1 ? 3.4 + 16 * R2s : null; }
-  if (x >= 105 && x < 149 && z >= 399 && z < 512) return null;
-  if (x < 305 && z >= 512 && z < 657) return 3.3;
-  if (z >= 973) { // bay (152,973)-(333,1035)-(383,973)
-    const s1 = (333 - 152) * (z - 973) - (1035 - 973) * (x - 152), s2 = (383 - 333) * (z - 1035) - (973 - 1035) * (x - 333);
-    return (s1 <= 0 && s2 <= 0) ? 3.4 : null;
-  }
+  if (x < ST2.x1 && z >= ST2.zL && z < ST2.landZ1) return z < ST2.landZ0 ? 3.4 + (Math.floor((z - ST2.zL) / ST2.tread) + 1) * R3 : 3.4 + 13 * R3;
+  if (x >= 105 && x < 149 && z >= 385 && z < 480) return null;
+  if (x < 305 && z >= 480 && z < 657) return 3.3;
+  if (z >= 973) return inBay(x, z) ? 3.4 : null;
   return 3.4;
 }
+function h3At(x, z) { // 3F (FL 6.6, bath/terrace 6.5) + turning risers 14–17
+  if (x < -5 || x > 465 || z < 10 || z > 1035) return null;
+  if (x >= 110 && x < 200 && z >= ST2.landZ0 && z < ST2.landZ1) return 3.4 + (14 + Math.min(3, Math.floor((x - 110) / 22.5))) * R3;
+  if (z < 220) return x >= 120 ? F3w : null;           // terrace (bulkhead over the stair on the ① side)
+  if (z < 240) return x >= 145 && x <= 385 ? F3 : null; // DW1 threshold
+  if (x < ST2.x1 && z < 480) return null;               // stair void
+  if (x < 305 && z >= 480 && z < 657) return F3w;
+  if (z >= 973) return inBay(x, z) ? F3 : null;
+  return F3;
+}
+function h4At(x, z) { return (x >= 5 && x <= 455 && z >= 245 && z <= 965) ? RF : null; } // roof deck (via 爬梯 on the terrace)
 function floorHeightAt(xw, zw, ref) {
   if (ref === undefined) ref = walk.y;
-  const [x, z] = planXZ(xw, zw), a = h1At(x, z), b = h2At(x, z);
-  if (b === null) return a; return Math.abs(b - ref) < Math.abs(a - ref) ? b : a;
+  const [x, z] = planXZ(xw, zw); let best = h1At(x, z);
+  for (const h of [h2At(x, z), h3At(x, z), h4At(x, z)]) if (h !== null && Math.abs(h - ref) < Math.abs(best - ref)) best = h;
+  return best;
 }
 // ---------- v3 helpers (door with plan-accurate hinge/swing, slanted walls, polygon floors) ----------
 const arcs = new THREE.Group(); house.add(arcs); arcs.visible = false;
@@ -540,12 +554,12 @@ async function buildHouse() {
   const paint = plasterMat(0xece7df, 0.9);             // W1 乳膠漆
   const stone = plasterMat(0xb9b1a4, 0.97); stone.normalScale.set(0.9, 0.9); // W3 仿石塗料
   const ext = plasterMat(0xd9d3c8, 0.95);
-  const H1 = 3.4, F2 = 3.4, F2w = 3.3, TOP = 6.6; // 1F 340, 2F 320 (2F FL +370, wet areas +360)
+  const H1 = 3.4, F2 = 3.4, F2w = 3.3, TOP = 6.6, stoneMat = stone; // 1F 340, 2F 320 (2F FL +370, wet areas +360)
   // ================= 1F =================
   floorRect('living', 105, 465, 0, 620, 0, 1);
   floorRect('living', 300, 465, 620, 805, 0, 2);
   floorRect('bath', -5, 105, 384, 620, 0.001, 3);
-  floorRect('stair', -5, 105, 10, 91, 0.001, 4);
+  floorRect('stair', -5, 105, 10, 77, 0.001, 4);
   floorRect('park', -5, 300, 620, 1160, -0.1, 5);
   floorRect('park', 300, 465, 805, 1160, -0.1, 6);
   floorRect('yard', -5, 465, -300, 0, -0.1, 7);
@@ -574,7 +588,7 @@ async function buildHouse() {
   bx(425, 462, 0, 2.1, 622, 798, M.cabinet, { collide: true }); for (let z = 624; z < 796; z += 44) bx(424, 425, 0.05, 2.08, z, z + 43, M.cabinet, { cast: false });
   // ---- 1F bathroom 115×228: D3 (75) in the living-side wall, hinge at the Ⓑ end, swings IN; basin below the open leaf ----
   wallX(379, -5, 105, 10, 2.55, paint);
-  wallZ(110, 379, 507, 10, 3.0, paint); wallZ(110, 507, 620, 10, H1, paint, [{ a: 528, b: 603, sill: 0, head: 2.2 }]);
+  wallZ(110, 379, 475, 10, 3.0, paint); wallZ(110, 475, 620, 10, H1, paint, [{ a: 528, b: 603, sill: 0, head: 2.2 }]);
   door2('D3-1F', 110, 603, 110, 528, 35, 603, 0.85, 2.2, M.cabinet);
   tilePanel('bathwall', 50, 384.5, 110, 2.4, 0, 0, 11); tilePanel('bathwall', 50, 612, 110, 2.4, Math.PI, 0, 12);
   tilePanel('bathwall', -4.5, 498, 228, 2.4, Math.PI / 2, 0, 13);
@@ -641,68 +655,66 @@ async function buildHouse() {
   // ================= 2F (p.3 貳層平面圖, H=320) =================
   // slab (3.21–3.39) except stair void x −5..105 z 91..507 and the turning risers x 105..149 z 399..507
   const slab = (x0, x1, z0, z1, y0 = 3.21, y1 = 3.39) => bx(x0, x1, y0, y1, z0, z1, M.concreteSlab, { cast: true });
-  slab(-5, 465, 0, 91); slab(105, 465, 91, 399); slab(149, 465, 399, 512); slab(305, 465, 512, 660); slab(-5, 305, 512, 660, 3.12, 3.29); slab(-5, 465, 660, 973);
+  slab(-5, 465, 0, 111); slab(110, 465, 111, 385); slab(149, 465, 385, 480); slab(305, 465, 480, 660); slab(-5, 305, 480, 660, 3.12, 3.29); slab(-5, 465, 660, 973);
   slab(-5, 465, -160, 0, 3.1, 3.29);
   floorPoly(null, [[152, 973], [333, 1035], [383, 973]], 3.21).material = M.concreteSlab;
-  floorRect('room2', 115, 465, 10, 399, F2, 21); floorRect('room2', 149, 465, 399, 512, F2, 22); floorRect('room2', 305, 465, 512, 660, F2, 23);
+  floorRect('room2', 115, 465, 10, 385, F2, 21); floorRect('room2', 149, 465, 385, 480, F2, 22); floorRect('room2', 305, 465, 480, 660, F2, 23);
   floorRect('room2', -5, 465, 660, 973, F2, 24); floorPoly('room2', [[152, 973], [333, 1035], [383, 973]], F2, 25);
-  floorRect('stair', -5, 115, 10, 91, F2 + 0.001, 26);
-  floorRect('bath2', -5, 305, 517, 652, F2w, 27); floorRect('balcony', -5, 465, -160, -10, F2w, 28);
+  floorRect('stair', -5, 115, 10, 111, F2 + 0.001, 26);
+  floorRect('bath2', -5, 305, 485, 652, F2w, 27); floorRect('balcony', -5, 465, -160, -10, F2w, 28);
   bx(300, 310, F2w, F2, 520, 595, M.counter, { cast: false }); // bath threshold (−10)
   // rear wall: DW1 240×220 (fixed 60 + sliding 90+90) to balcony
-  wallX(0, -5, 465, 20, TOP, paint, [{ a: 150, b: 390, sill: F2, head: F2 + 2.2 }], H1);
+  wallX(0, -5, 465, 20, 6.3, paint, [{ a: 150, b: 390, sill: F2, head: F2 + 2.2 }], H1);
   windowAlongX(0, 150, 390, F2 + 0.01, F2 + 2.2); bx(208, 212, F2, F2 + 2.2, -3, 3, M.frame);
   // balcony parapet (1.1 m) + rail cap
   wallX(-160, -20, 480, 15, F2w + 1.1, ext, [], 3.1); bx(-20, 480, F2w + 1.1, F2w + 1.14, -169, -151, M.steel);
-  // stair 2F→3F (UP17 drawn on 2F, 18 risers × 17.8): flight above the 1F flight, top landing over the 1F landing
-  const R2 = 3.2 / 18;
-  for (let j = 1; j <= 15; j++) {
-    const z0 = ST2.zL + (j - 1) * ST2.tread, z1 = z0 + ST2.tread, top = F2 + j * R2;
+  // stair 2F→3F (p.4: 17 risers × 18.8; 1–13 straight above the 1F flight, landing, 14–17 turn toward ②)
+  for (let j = 1; j <= ST2.n; j++) {
+    const z0 = ST2.zL + (j - 1) * ST2.tread, z1 = z0 + ST2.tread, top = F2 + j * R3;
     bx(-5, 105, Math.max(F2 - 0.15, top - 0.3), top - 0.02, z0, z1, paint);
     bx(ST.x0, 105, top - 0.02, top, z0 - 1.5, z1, stairMat); bx(-5, ST.x0, top - 0.02, top, z0, z1, paint);
     bx(105, 115, F2, top + 0.9, z0, z1, paint, { collide: true });
   }
-  bx(-5, 105, F2 + 16 * R2 - 0.2, F2 + 16 * R2, ST2.landZ0, ST2.landZ1, M.concreteSlab); bx(-5, 105, F2 + 16 * R2 - 0.02, F2 + 16 * R2 + 0.001, ST2.landZ0, ST2.landZ1, stairMat);
-  bx(105, 110, F2 + 16 * R2, F2 + 16 * R2 + 1.0, ST2.landZ0, ST2.landZ1, M.glassRail || paint, { collide: true }); // 3F not modelled — guard
-  { const L = Math.hypot((15 * ST2.tread) / 100, 15 * R2); const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
-    hr.position.set(W(117), F2 + 0.95 + 15 * R2 / 2, Zw(ST2.zL + 15 * ST2.tread / 2)); hr.rotation.x = Math.atan2(15 * ST2.tread / 100, 15 * R2); house.add(hr); }
-  // guard rail at the 1F→2F arrival (edge of risers 16/17 toward 起居室)
-  bx(115, 149, F2, F2 + 0.95, 397, 400, M.steel, { collide: true });
-  // stairwell up to 3F (cut at 9.0, 3F not modelled)
-  wallZ(-12.5, 0, 512, 15, 9.0, ext, [], TOP); wallX(0, -5, 115, 20, 9.0, paint, [], TOP); wallZ(110, 91, 512, 10, 9.0, paint, [], 6.3); wallX(512, -5, 115, 10, 9.0, paint, [], 5.8);
-  ceilingRect(-5, 115, 0, 517, 9.0, 'C1');
-  // 2F bathroom 310×135 (F2 floor, W2 walls, C2 ceiling): D3 75 in the hall-side wall, hinge at the stair end, swings IN
-  wallX(512, -5, 105, 10, TOP, paint, [], 2.85); wallX(512, 105, 305, 10, TOP, paint, [], F2w);
-  wallZ(305, 512, 657, 10, TOP, paint, [{ a: 520, b: 595, sill: F2w, head: F2w + 2.2 }], F2w);
-  door2('D3-2F', 305, 520, 305, 595, 230, 520, 0.85, 2.2, M.cabinet, F2w);
-  tilePanel('bath2wall', 150, 517.5, 310, 2.4, 0, F2w, 31); tilePanel('bath2wall', 150, 651.5, 310, 2.4, Math.PI, F2w, 32);
-  tilePanel('bath2wall', -4.5, 584, 135, 2.4, Math.PI / 2, F2w, 33); tilePanel('bath2wall', 299.5, 624, 56, 2.4, -Math.PI / 2, F2w, 34);
-  toilet(175, 652, F2w, -1);
-  basinAt(232, 288, 607, 652, F2w, [260, 630]); bx(235, 285, F2w + 1.1, F2w + 1.8, 651, 652, new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.03 }));
-  bx(108, 110, F2w, F2w + 2.0, 517, 590, M.windowGlass, { collide: true }); bx(-5, 108, F2w, F2w + 0.03, 517, 652, M.counter, { cast: false }); // shower zone + glass
-  { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.02, 24), M.chrome); sh.position.set(W(50), F2w + 2.05, Zw(640)); house.add(sh); bx(48, 52, F2w + 1.0, F2w + 2.1, 650, 652, M.chrome); }
-  ceilingRect(-5, 305, 517, 652, F2w + 2.4, 'C2');
+  { const yl = F2 + 13 * R3; bx(-5, ST2.x1, yl - 0.2, yl - 0.02, ST2.landZ0, ST2.landZ1, M.concreteSlab); bx(-5, ST2.x1, yl - 0.02, yl, ST2.landZ0 - 1.5, ST2.landZ1, stairMat);
+    for (let k = 14; k <= 17; k++) { const x0 = 110 + (k - 14) * 22.5, top = F2 + k * R3; bx(x0, x0 + 22.5, top - 0.25, top - 0.02, ST2.landZ0, ST2.landZ1, paint); bx(x0 - 1.5, x0 + 22.5, top - 0.02, top, ST2.landZ0, ST2.landZ1, stairMat); } }
+  { const L = Math.hypot((ST2.n * ST2.tread) / 100, ST2.n * R3); const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
+    hr.position.set(W(117), F2 + 0.95 + ST2.n * R3 / 2, Zw(ST2.zL + ST2.n * ST2.tread / 2)); hr.rotation.x = Math.atan2(ST2.n * ST2.tread / 100, ST2.n * R3); house.add(hr); }
+  bx(115, 149, F2, F2 + 0.95, 382, 385, M.steel, { collide: true }); // guard at the 1F→2F arrival
+  let linen, duvet;
+  const bedBath = (F, Fw, tag, y0a) => {
+  // 2F bathroom 310×135 (F floor, W2 walls, C2 ceiling): D3 75 in the hall-side wall, hinge at the stair end, swings IN
+  wallX(480, -5, 105, 10, (F + 3.2), paint, [], y0a); wallX(480, 105, 305, 10, (F + 3.2), paint, [], Fw);
+  wallZ(305, 480, 657, 10, (F + 3.2), paint, [{ a: 520, b: 595, sill: Fw, head: Fw + 2.2 }], Fw);
+  door2('D3-' + tag, 305, 520, 305, 595, 230, 520, 0.85, 2.2, M.cabinet, Fw);
+  tilePanel('bath2wall', 150, 485.5, 310, 2.4, 0, Fw, 31); tilePanel('bath2wall', 150, 651.5, 310, 2.4, Math.PI, Fw, 32);
+  tilePanel('bath2wall', -4.5, 568.5, 167, 2.4, Math.PI / 2, Fw, 33); tilePanel('bath2wall', 299.5, 624, 56, 2.4, -Math.PI / 2, Fw, 34);
+  toilet(175, 652, Fw, -1);
+  basinAt(232, 288, 607, 652, Fw, [260, 630]); bx(235, 285, Fw + 1.1, Fw + 1.8, 651, 652, new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.03 }));
+  bx(108, 110, Fw, Fw + 2.0, 485, 590, M.windowGlass, { collide: true }); bx(-5, 108, Fw, Fw + 0.03, 485, 652, M.counter, { cast: false }); // shower zone + glass
+  { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.02, 24), M.chrome); sh.position.set(W(50), Fw + 2.05, Zw(640)); house.add(sh); bx(48, 52, Fw + 1.0, Fw + 2.1, 650, 652, M.chrome); }
+  ceilingRect(-5, 305, 485, 652, Fw + 2.4, 'C2');
   // master bedroom 主臥室 (470 × 315): D4 90×230 hinge on ② side, swings IN; bay W3 165×220 + W4 40×220
-  wallX(657, -5, 465, 10, TOP, paint, [{ a: 330, b: 420, sill: F2, head: F2 + 2.3 }], F2w);
-  door2('D4', 420, 657, 330, 657, 420, 747, 0.85, 2.3, M.oak, F2);
-  wallX(973, -5, 152, 20, TOP, paint, [], 3.21); wallX(973, 383, 465, 20, TOP, paint, [], 3.21);
-  segWall(152, 973, 333, 1035, 15, 3.21, TOP, paint, { c: 0.5, w: 165, sill: F2 + 0.1, head: F2 + 2.2, mull: [55, 110], transom: F2 + 1.1 });
-  segWall(333, 1035, 383, 973, 15, 3.21, TOP, paint, { c: 0.5, w: 40, sill: F2 + 0.1, head: F2 + 2.2, transom: F2 + 1.1 });
+  wallX(657, -5, 465, 10, (F + 3.2), paint, [{ a: 330, b: 420, sill: F, head: F + 2.3 }], Fw);
+  door2('D4-' + tag, 420, 657, 330, 657, 420, 747, 0.85, 2.3, M.oak, F);
+  wallX(973, -5, 152, 20, (F + 3.2), paint, [], F - 0.19); wallX(973, 383, 465, 20, (F + 3.2), paint, [], F - 0.19);
+  segWall(152, 973, 333, 1035, 15, F - 0.19, (F + 3.2), paint, { c: 0.5, w: 165, sill: F + 0.1, head: F + 2.2, mull: [55, 110], transom: F + 1.1 });
+  segWall(333, 1035, 383, 973, 15, F - 0.19, (F + 3.2), paint, { c: 0.5, w: 40, sill: F + 0.1, head: F + 2.2, transom: F + 1.1 });
+  // bedroom furniture: bed 152×188 (5×6.2尺) head to ① wall, wardrobe 60 deep on ② wall, nightstand
+  linen = new THREE.MeshStandardMaterial({ color: 0xe9e4da, roughness: 0.95 }); duvet = new THREE.MeshStandardMaterial({ color: 0x8c9aa3, roughness: 0.95 });
+  bx(-5, 3, F, F + 1.05, 680, 840, M.darkwood, { collide: true });
+  bx(3, 191, F, F + 0.3, 684, 836, M.oak, { collide: true }); bx(5, 189, F + 0.3, F + 0.55, 686, 834, linen, { r: 0.04 });
+  bx(70, 192, F + 0.5, F + 0.6, 682, 838, duvet, { r: 0.03 }); bx(10, 50, F + 0.55, F + 0.68, 694, 756, linen, { r: 0.05 }); bx(10, 50, F + 0.55, F + 0.68, 764, 826, linen, { r: 0.05 });
+  addCollider(3, 192, 682, 838, F, F + 0.7);
+  bx(405, 465, F, F + 2.2, 760, 960, M.cabinet, { collide: true }); for (let z = 762; z < 958; z += 49) bx(404, 405, F + 0.05, F + 2.18, z, z + 48, M.cabinet, { cast: false });
+  bx(150, 330, F, F + 0.012, 850, 960, M.rug, { cast: false });
+  };
+  bedBath(F2, F2w, '2F', 2.85);
   // 2F ceilings (C1 paint 290) + roof slab cap
-  ceilingRect(115, 465, 0, 512, 6.3, 'C1'); ceilingRect(-5, 115, 0, 91, 6.3, 'C1'); ceilingRect(305, 465, 512, 657, 6.3, 'C1'); ceilingRect(-5, 465, 657, 973, 6.3, 'C1');
-  bx(115, 480, TOP, TOP + 0.2, -10, 1040, M.concreteSlab, { parent: ceilings }); bx(-20, 115, TOP, TOP + 0.2, -10, 0, M.concreteSlab, { parent: ceilings }); bx(-20, 115, TOP, TOP + 0.2, 517, 1040, M.concreteSlab, { parent: ceilings });
+  ceilingRect(200, 465, 0, 480, 6.3, 'C1'); ceilingRect(115, 200, 0, 375, 6.3, 'C1'); ceilingRect(-5, 110, 0, 111, 6.3, 'C1'); ceilingRect(305, 465, 480, 657, 6.3, 'C1'); ceilingRect(-5, 465, 657, 973, 6.3, 'C1');
   [[220, 120], [360, 120], [220, 300], [380, 300], [380, 580], [120, 780], [330, 780], [220, 920]].forEach(([x, z], i) => dl(x, z, 6.3, 4.5, false));
-  dl(150, 585, F2w + 2.4, 3, false); dl(60, 300, 9.0, 7, false); dl(60, 460, 9.0, 5, false);
+  dl(150, 585, F2w + 2.4, 3, false); dl(60, 330, 9.5, 7, false); dl(60, 460, 9.5, 5, false); dl(60, 170, 7.8, 4, false);
   { const pl = new THREE.PointLight(0xffe6cc, 3, 6, 2); pl.position.set(W(50), 4.8, Zw(300)); house.add(pl); }
   bx(455, 465, F2, F2 + 0.12, 25, 595, sk, { cast: false });
-  // bedroom furniture: bed 152×188 (5×6.2尺) head to ① wall, wardrobe 60 deep on ② wall, nightstand
-  const linen = new THREE.MeshStandardMaterial({ color: 0xe9e4da, roughness: 0.95 }), duvet = new THREE.MeshStandardMaterial({ color: 0x8c9aa3, roughness: 0.95 });
-  bx(-5, 3, F2, F2 + 1.05, 680, 840, M.darkwood, { collide: true });
-  bx(3, 191, F2, F2 + 0.3, 684, 836, M.oak, { collide: true }); bx(5, 189, F2 + 0.3, F2 + 0.55, 686, 834, linen, { r: 0.04 });
-  bx(70, 192, F2 + 0.5, F2 + 0.6, 682, 838, duvet, { r: 0.03 }); bx(10, 50, F2 + 0.55, F2 + 0.68, 694, 756, linen, { r: 0.05 }); bx(10, 50, F2 + 0.55, F2 + 0.68, 764, 826, linen, { r: 0.05 });
-  addCollider(3, 192, 682, 838, F2, F2 + 0.7);
-  bx(405, 465, F2, F2 + 2.2, 760, 960, M.cabinet, { collide: true }); for (let z = 762; z < 958; z += 49) bx(404, 405, F2 + 0.05, F2 + 2.18, z, z + 48, M.cabinet, { cast: false });
-  bx(150, 330, F2, F2 + 0.012, 850, 960, M.rug, { cast: false });
   // 起居室 (355 × 445): 2-seat sofa against the stair guard facing ②, TV on ② wall, rug
   bx(130, 350, F2, F2 + 0.012, 140, 312, M.rug, { cast: false });
   bx(425, 465, F2, F2 + 0.45, 170, 300, M.oak, { collide: true }); bx(463, 465, F2 + 1.0, F2 + 1.62, 182, 288, new THREE.MeshPhysicalMaterial({ color: 0x050505, roughness: 0.1, clearcoat: 1 }));
@@ -710,6 +722,48 @@ async function buildHouse() {
   bx(75, 140, F2w, F2w + 0.85, -75, -12, new THREE.MeshPhysicalMaterial({ color: 0xf1f1f1, roughness: 0.3, clearcoat: 0.5 }), { collide: true, r: 0.02 });
   bx(420, 462, F2w, F2w + 0.8, -115, -55, M.ceramic, { collide: true, r: 0.02 });
 
+  // ================= 3F (p.4 參層平面圖, H=320; FL +690 → 6.6, bath/terrace +680 → 6.5) =================
+  const s3 = (x0, x1, z0, z1, y0 = F3 - 0.19, y1 = F3 - 0.01) => bx(x0, x1, y0, y1, z0, z1, M.concreteSlab);
+  s3(110, 465, 230, 375); s3(200, 465, 375, 480); s3(305, 465, 480, 660); s3(-5, 305, 480, 660, F3w - 0.18, F3w - 0.01); s3(-5, 465, 660, 973);
+  s3(120, 465, 0, 230, 6.31, F3w - 0.01); floorPoly(null, [[152, 973], [333, 1035], [383, 973]], F3 - 0.19).material = M.concreteSlab;
+  floorRect('room2', 110, 465, 240, 375, F3, 41); floorRect('room2', 200, 465, 375, 480, F3, 42); floorRect('room2', 305, 465, 480, 660, F3, 43);
+  floorRect('room2', -5, 465, 660, 973, F3, 44); floorPoly('room2', [[152, 973], [333, 1035], [383, 973]], F3, 45);
+  floorRect('bath2', -5, 305, 485, 652, F3w, 47); floorRect('terrace', 120, 465, 10, 220, F3w, 48);
+  bx(300, 310, F3w, F3, 520, 595, M.counter, { cast: false });
+  // shell: party walls up to the roof parapet (+1120 → 10.9), terrace side parapets, rear parapet (W3 仿石塗料 on the terrace side)
+  wallZ(-12.5, 230, 975, 15, RF + 1.1, ext, [], TOP); wallZ(-12.5, 0, 230, 15, 7.95, ext, [], TOP);
+  wallZ(472.5, 230, 975, 15, RF + 1.1, ext, [{ a: 520, b: 580, sill: F3 + 1.1, head: F3 + 2.2 }], TOP); windowAlongZ(468, 520, 580, F3 + 1.1, F3 + 2.2, [550]);
+  wallZ(472.5, 0, 230, 15, F3w + 1.1, ext, [], TOP); bx(464.5, 465, F3w, F3w + 1.1, 10, 220, stoneMat, { cast: false });
+  wallX(0, 120, 480, 20, F3w + 1.1, ext, [], 6.3); bx(120, 465, F3w, F3w + 1.1, 10, 10.5, stoneMat, { cast: false }); bx(120, 480, F3w + 1.1, F3w + 1.14, -10, 10, M.steel);
+  // stair bulkhead (p.4 "3FL+119"): keeps headroom over the 2F→3F flight
+  wallX(0, -20, 120, 20, 7.95, ext, [], 6.3); wallZ(117.5, 10, 230, 5, 7.8, ext, [], F3w); bx(-20, 122, 7.8, 7.95, 0, 240, M.concreteSlab);
+  // 3F rear wall on grid Ⓐ' (z 230): DW1 240×220 to the terrace; W3 skin on terrace face
+  wallX(230, 110, 465, 20, RF, paint, [{ a: 145, b: 385, sill: F3, head: F3 + 2.2 }], 6.3); windowAlongX(230, 145, 385, F3 + 0.01, F3 + 2.2); bx(203, 207, F3, F3 + 2.2, 227, 233, M.frame);
+  wallX(230, -5, 110, 20, RF, paint, [], 7.8); bx(110, 465, F3w, RF, 219.5, 220, stoneMat, { cast: false });
+  // 3F guards around the stair void (L-shaped, as drawn)
+  bx(110, 114, F3, F3 + 1.0, 240, 377, M.steel, { collide: true }); bx(110, 177, F3, F3 + 1.0, 373, 377, M.steel, { collide: true });
+  bx(105, 110, F2 + 13 * R3, F2 + 13 * R3 + 0.9, 240, 375, M.steel, { collide: true });
+  // bath / bedroom / hall: same layout as 2F (p.4)
+  bedBath(F3, F3w, '3F', 5.6);
+  // 家事間 (utility room 355 × 135+): work table 120×60×75 + shelving on ② wall
+  bx(345, 465, F3 + 0.72, F3 + 0.75, 245, 305, M.oak); for (const [x, z] of [[347, 247], [461, 247], [347, 301], [461, 301]]) bx(x, x + 3, F3, F3 + 0.72, z, z + 3, M.darkwood); addCollider(345, 465, 245, 305, F3, F3 + 0.75);
+  bx(425, 465, F3, F3 + 1.8, 320, 500, M.cabinet, { collide: true });
+  // terrace (露臺): washer + utility sink on ② side (as drawn), clothes line, 爬梯 to roof
+  bx(395, 460, F3w, F3w + 0.85, 50, 110, new THREE.MeshPhysicalMaterial({ color: 0xf1f1f1, roughness: 0.3, clearcoat: 0.5 }), { collide: true, r: 0.02 });
+  bx(422, 462, F3w, F3w + 0.8, 14, 50, M.ceramic, { collide: true, r: 0.02 });
+  bx(130, 380, F3w + 1.9, F3w + 1.92, 120, 122, M.steel);
+  for (const x of [432, 462]) bx(x, x + 3, F3w, RF + 1.2, 212, 216, M.steel); for (let y = F3w + 0.3; y < RF + 1.1; y += 0.3) bx(432, 465, y, y + 0.025, 213, 215, M.steel);
+  // 3F ceilings (C1, 290) + lights
+  ceilingRect(-5, 465, 240, 480, F3 + 2.9, 'C1'); ceilingRect(305, 465, 480, 657, F3 + 2.9, 'C1'); ceilingRect(-5, 465, 657, 973, F3 + 2.9, 'C1');
+  [[280, 300], [400, 450], [380, 580], [120, 780], [330, 780], [220, 920]].forEach(([x, z]) => dl(x, z, F3 + 2.9, 4.5, false)); dl(150, 585, F3w + 2.4, 3, false);
+  // ================= roof (p.4 屋頂層 +1010 → 9.8; parapet H=110; 2噸水塔) =================
+  bx(-20, 480, RF - 0.2, RF, 220, 983, M.concreteSlab); floorPoly(null, [[152, 973], [333, 1035], [383, 973]], RF).material = M.concreteSlab;
+  bx(-5, 465, RF, RF + 0.02, 240, 963, new THREE.MeshStandardMaterial({ color: 0x8e9295, roughness: 0.85 }), { cast: false });
+  wallX(230, -20, 480, 20, RF + 1.1, ext, [], RF); wallX(973, -20, 480, 20, RF + 1.1, ext, [], RF);
+  bx(42, 209, RF, RF + 0.4, 309, 451, M.concreteSlab, { collide: true });
+  { const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 1.55, 40), new THREE.MeshStandardMaterial({ color: 0xd8dadc, metalness: 0.9, roughness: 0.3 }));
+    tank.position.set(W(125), RF + 0.4 + 0.78, Zw(380)); tank.castShadow = true; house.add(tank); addCollider(53, 197, 308, 452, RF, RF + 2.0);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.72, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), tank.material); cap.scale.y = 0.25; cap.position.set(W(125), RF + 0.4 + 1.55, Zw(380)); house.add(cap); }
   // ---- CC0 furniture ----
   const coll = (w, pad = 0) => { w.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(w); addCollider(230 - b.max.x * 100 - pad, 230 - b.min.x * 100 + pad, b.min.z * 100 + 500 - pad, b.max.z * 100 + 500 + pad, b.min.y, b.max.y); return w; };
   const jobs = [
@@ -726,6 +780,10 @@ async function buildHouse() {
     put('side_table_01', 22, 865, { fitH: 0.5, y: F2 }).then(coll),
     put('dining_chair_02', 265, 925, { ry: Math.PI * 0.85, s: 0.95, y: F2 }).then(coll),
     put('potted_plant_02', 30, -120, { fitH: 0.8, y: F2w }),
+    put('side_table_01', 22, 865, { fitH: 0.5, y: F3 }).then(coll),
+    put('dining_chair_02', 265, 925, { ry: Math.PI * 0.85, s: 0.95, y: F3 }).then(coll),
+    put('dining_chair_02', 325, 275, { ry: Math.PI / 2, s: 0.95, y: F3 }).then(coll),
+    put('potted_plant_04', 300, 40, { fitH: 1.0, y: F3w }).then(coll), put('potted_plant_02', 200, 40, { fitH: 0.8, y: F3w }).then(coll),
   ];
   await Promise.all(jobs);
   const sun = new THREE.DirectionalLight(0xfff0dc, 3.0); sun.position.set(W(600), 11, Zw(1900)); sun.target.position.set(W(230), 0, Zw(600));
@@ -737,12 +795,19 @@ async function buildHouse() {
 
 // ---------------- walk / orbit controls ----------------
 let mode = params.get('mode') || 'walk';
-let orbitLv = 0; const planLv = +(params.get('plan') || 0); let ortho = null;
+let orbitLv = -1; const planLv = +(params.get('plan') || 0); let ortho = null;
 function setupPlan() { // top-down orthographic, ① left / Ⓐ bottom like the drawing; cut at 1.6 m above the floor
-  renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), planLv === 1 ? 1.6 : 3.4 + 1.6)];
+  renderer.clippingPlanes = planLv === 4 ? [] : [new THREE.Plane(new THREE.Vector3(0, -1, 0), [0, 1.6, 3.4 + 1.6, 6.6 + 1.6][planLv])];
   ceilings.visible = false; arcs.visible = true; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
   const asp = innerWidth / innerHeight, hh = 7.75, hw = hh * asp; ortho = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.1, 100);
   ortho.up.set(0, 0, 1); ortho.position.set(0, 40, Zw(430)); ortho.lookAt(0, 0, Zw(430)); ortho.updateProjectionMatrix();
+}
+const elevV = params.get('elev');
+function setupElev() { // orthographic rear (南向) elevation: ① left, ② right; cut off the rear boundary wall
+  renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), -Zw(-250))];
+  ceilings.visible = true; arcs.visible = false; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
+  const asp = innerWidth / innerHeight, hh = 6.2, hw = hh * asp; ortho = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.1, 100);
+  ortho.position.set(0, 5.4, Zw(-1500)); ortho.lookAt(0, 5.4, Zw(500)); ortho.updateProjectionMatrix();
 }
 const walk = { yaw: Math.PI, pitch: -0.05, x: WX(390), z: Zw(1120), keys: {}, move: { x: 0, y: 0 }, look: null, joy: null, eye: 1.55, y: 0 };
 const el = renderer.domElement;
@@ -750,10 +815,11 @@ function setMode(m) {
   mode = m; $('modeBtn').textContent = m === 'walk' ? '切換：俯瞰環繞' : '切換：第一人稱漫遊';
   controls.enabled = m === 'orbit'; ceilings.visible = m === 'walk' && !planLv; $('joy').style.display = m === 'walk' && ('ontouchstart' in window) ? '' : 'none';
   arcs.visible = m === 'orbit' || !!planLv;
-  if (m === 'orbit') { const lv = orbitLv || (walk.y > 2 ? 2 : 1); const by = lv === 2 ? 3.4 : 0;
-    renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), lv === 2 ? 6.35 : 3.2)];
-    controls.target.set(0, by + 0.5, Zw(450)); camera.position.set(WX(750), by + 9.5, Zw(1250)); controls.maxDistance = 30; controls.maxPolarAngle = Math.PI * 0.49; camera.fov = 50; if ($('orbitLv')) $('orbitLv').value = String(lv); }
-  else if (!planLv) renderer.clippingPlanes = [];
+  if (m === 'orbit') { const lv = orbitLv === 0 ? 0 : (orbitLv || (walk.y > 8 ? 4 : walk.y > 5 ? 3 : walk.y > 2 ? 2 : 1)); const by = [0, 0, 3.4, 6.6, 9.8][lv] || 0;
+    renderer.clippingPlanes = lv && lv < 4 ? [new THREE.Plane(new THREE.Vector3(0, -1, 0), [0, 3.2, 6.35, 9.45][lv])] : [];
+    if (lv === 0) { controls.target.set(0, 4.5, Zw(500)); camera.position.set(WX(-700), 7, Zw(-1300)); }
+    else { controls.target.set(0, by + 0.5, Zw(450)); camera.position.set(WX(750), by + 9.5, Zw(1250)); } controls.maxDistance = 30; controls.maxPolarAngle = Math.PI * 0.49; camera.fov = 50; if ($('orbitLv')) $('orbitLv').value = String(lv); }
+  else if (!planLv && !elevV) renderer.clippingPlanes = [];
   else camera.fov = camera.aspect < 1 ? 75 : 65;
   camera.updateProjectionMatrix(); renderer.shadowMap.needsUpdate = true;
 }
@@ -795,7 +861,7 @@ function stepWalk() {
   camera.rotation.order = 'YXZ'; camera.rotation.set(walk.pitch, walk.yaw, 0);
 }
 let frameNo = 0;
-function animate() { requestAnimationFrame(animate); frameNo++; if (ortho) { renderer.render(scene, ortho); return; } stepWalk(); { const ht = mode === 'walk' ? (walk.y > 2 ? '二樓 2F｜層高 320 cm' : '一樓 1F｜層高 340 cm') : '俯瞰：紅線＝門扇開啟範圍'; if ($('hint') && $('hint').textContent !== ht) $('hint').textContent = ht; } if (mode === 'orbit') controls.update(); composer.render(); }
+function animate() { requestAnimationFrame(animate); frameNo++; if (ortho) { renderer.render(scene, ortho); return; } stepWalk(); { const ht = mode === 'walk' ? (walk.y > 8 ? '屋頂 RF｜+1010' : walk.y > 5 ? '三樓 3F｜層高 320 cm' : walk.y > 2 ? '二樓 2F｜層高 320 cm' : '一樓 1F｜層高 340 cm') : '俯瞰：紅線＝門扇開啟範圍'; if ($('hint') && $('hint').textContent !== ht) $('hint').textContent = ht; } if (mode === 'orbit') controls.update(); composer.render(); }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
 
 function initXieUI() {
@@ -812,7 +878,8 @@ function initXieUI() {
   $('groutW').onchange = e => { zones[zs.value].groutMM = +e.target.value; applyZone(zs.value); };
   $('groutC').onchange = e => { zones[zs.value].groutHex = e.target.value; applyZone(zs.value); };
   $('modeBtn').onclick = () => setMode(mode === 'walk' ? 'orbit' : 'walk');
-  document.querySelectorAll('.go').forEach(b => b.onclick = () => { const [x, z, yaw, lv = 1] = b.dataset.p.split(',').map(Number); setMode('walk'); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; walk.pitch = -0.08; walk.y = floorHeightAt(walk.x, walk.z, lv === 2 ? 3.4 : 0); });
+  document.querySelectorAll('.go').forEach(b => b.onclick = () => { const [x, z, yaw, lv = 1] = b.dataset.p.split(',').map(Number); setMode('walk'); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; walk.pitch = -0.08; walk.y = floorHeightAt(walk.x, walk.z, [0, 0, 3.4, 6.6, 9.8][lv] || 0); });
+  document.querySelectorAll('.ext').forEach(b => b.onclick = () => { orbitLv = 0; setMode('orbit'); });
   if ($('orbitLv')) $('orbitLv').onchange = e => { orbitLv = +e.target.value; setMode('orbit'); };
   $('quality').value = quality; $('quality').onchange = e => { const u = new URL(location.href); u.searchParams.set('q', e.target.value); location.href = u.toString(); };
 }
@@ -834,9 +901,9 @@ window.__xie = { setMode, walk, W, WX, Zw, camera, controls, doorLog, colliders,
     const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(tex).texture; scene.environmentIntensity = 0.45;
     scene.background = new THREE.Color(0xc9d6e2);
     await buildHouse(); initXieUI();
-    let lv0 = 1; const p = params.get('pos'); if (p) { const [x, z, yaw, pitch, lv] = p.split(',').map(Number); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; if (!isNaN(pitch)) walk.pitch = pitch; if (lv === 2) lv0 = 2; }
-    walk.y = floorHeightAt(walk.x, walk.z, lv0 === 2 ? 3.4 : 0); if (params.get('olv')) orbitLv = +params.get('olv');
-    if (planLv) setupPlan();
+    let lv0 = 1; const p = params.get('pos'); if (p) { const [x, z, yaw, pitch, lv] = p.split(',').map(Number); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; if (!isNaN(pitch)) walk.pitch = pitch; if (lv >= 2) lv0 = lv; }
+    walk.y = floorHeightAt(walk.x, walk.z, [0, 0, 3.4, 6.6, 9.8][lv0]); if (params.get('olv') !== null) orbitLv = +params.get('olv');
+    if (planLv) setupPlan(); else if (elevV) setupElev();
     setMode(mode);
     $('loading').style.display = 'none'; window.__ready = true; animate();
   } catch (e) { console.error(e); $('loadtxt').textContent = '載入失敗：' + e.message; }
