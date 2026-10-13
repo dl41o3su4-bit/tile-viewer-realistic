@@ -425,7 +425,7 @@ function ceilingBoardMat() { // C2 暗架矽酸鈣天花板 60×60
 function ceilingRect(x0, x1, z0, z1, y, kind) {
   const w = (x1 - x0) / 100, d = (z1 - z0) / 100; let mat;
   if (kind === 'C2') { const t = ceilingBoardMat(); t.repeat.set(w / 0.6, d / 0.6); mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, side: THREE.DoubleSide }); }
-  else mat = plasterMat(kind === 'C3' ? 0xcfc8bd : 0xf3f2ef); 
+  else mat = plasterMat(kind === 'C3' ? 0xe4e0d8 : 0xf6f5f2); 
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat); m.rotation.x = Math.PI / 2; m.position.set(W((x0 + x1) / 2), y, Zw((z0 + z1) / 2)); m.receiveShadow = true; ceilings.add(m);
   // slab above so light doesn't leak
   bx(x0, x1, y + 0.0, y + 0.15, z0, z1, M.concreteSlab, { parent: ceilings });
@@ -467,7 +467,7 @@ async function buildHouse() {
   floorRect('park', 300, 465, 805, 1160, -0.1, 6);
   floorRect('yard', -5, 465, -300, 0, -0.1, 7);
   bx(105, 465, -0.1, 0, 619, 621, M.counter, { cast: false }); bx(300, 302, -0.1, 0, 621, 805, M.counter, { cast: false }); // step edges
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x8d8a85, roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.12; ground.receiveShadow = true; house.add(ground);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0xa7a59f, roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.12; ground.receiveShadow = true; house.add(ground);
   // ---- party walls (both sides, row house) ----
   for (const [x, t] of [[-12.5, 15], [472.5, 15]]) {
     wallZ(x, 0, 1160, t, H1, ext); wallZ(x, -300, 0, t, 1.8, ext, [], -0.1);
@@ -554,7 +554,7 @@ async function buildHouse() {
     put('modern_coffee_table_01', 275, 470),
     put('bar_chair_round_01', 160, 360, { fitH: 0.95 }), put('bar_chair_round_01', 225, 360, { fitH: 0.95 }),
     put('potted_plant_02', 445, 595, { fitH: 1.1 }), put('potted_plant_04', 440, 780, { fitH: 0.8 }),
-    put('covered_car', 140, 880, { y: -0.1 }),
+    put('covered_car', 140, 880, { y: -0.1 }).then(() => addCollider(55, 225, 660, 1100)),
     put('potted_plant_02', 420, -250, { fitH: 1.0, y: -0.1 }),
     put('cardboard_box_01', 400, 1100, { y: -0.1 }),
   ];
@@ -563,18 +563,18 @@ async function buildHouse() {
   const sun = new THREE.DirectionalLight(0xfff0dc, 3.0); sun.position.set(W(600), 9, Zw(1900)); sun.target.position.set(W(230), 0, Zw(700));
   sun.castShadow = true; sun.shadow.mapSize.set(quality === 'high' ? 2048 : 1024, quality === 'high' ? 2048 : 1024);
   Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 }); sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.02;
-  house.add(sun, sun.target); house.add(new THREE.HemisphereLight(0xeaf2ff, 0x857766, 0.35));
+  house.add(sun, sun.target); house.add(new THREE.HemisphereLight(0xf4f6ff, 0x9a8c7a, 0.6));
   for (const k in zones) applyZone(k);
 }
 
 // ---------------- walk / orbit controls ----------------
 let mode = params.get('mode') || 'walk';
-const walk = { yaw: Math.PI, pitch: -0.05, x: W(230), z: Zw(1080), keys: {}, move: { x: 0, y: 0 }, look: null, joy: null, eye: 1.55, y: 0 };
+const walk = { yaw: Math.PI, pitch: -0.05, x: W(390), z: Zw(1120), keys: {}, move: { x: 0, y: 0 }, look: null, joy: null, eye: 1.55, y: 0 };
 const el = renderer.domElement;
 function setMode(m) {
   mode = m; $('modeBtn').textContent = m === 'walk' ? '切換：俯瞰環繞' : '切換：第一人稱漫遊';
   controls.enabled = m === 'orbit'; ceilings.visible = m === 'walk'; $('joy').style.display = m === 'walk' && ('ontouchstart' in window) ? '' : 'none';
-  if (m === 'orbit') { controls.target.set(W(230), 0.5, Zw(450)); camera.position.set(W(900), 13, Zw(1500)); controls.maxDistance = 30; controls.maxPolarAngle = Math.PI * 0.49; camera.fov = 50; }
+  if (m === 'orbit') { controls.target.set(W(230), 0.5, Zw(450)); camera.position.set(W(750), 9.5, Zw(1250)); controls.maxDistance = 30; controls.maxPolarAngle = Math.PI * 0.49; camera.fov = 50; }
   else camera.fov = camera.aspect < 1 ? 75 : 65;
   camera.updateProjectionMatrix(); renderer.shadowMap.needsUpdate = true;
 }
