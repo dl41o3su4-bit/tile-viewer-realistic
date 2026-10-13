@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>謝雲卿案 下營598-3 一樓 3D 漫遊</title>
+<style>
+  html,body { margin:0; height:100%; overflow:hidden; background:#0d0d0f; font-family:system-ui,-apple-system,"PingFang TC","Noto Sans TC",sans-serif; touch-action:none; -webkit-user-select:none; user-select:none; }
+  canvas { display:block; }
+  #toggle { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:10px; z-index:20; background:rgba(20,20,22,.78); color:#fff; border:none; border-radius:10px; padding:9px 13px; font-size:16px; }
+  #modeBtn { position:absolute; top:calc(10px + env(safe-area-inset-top)); right:10px; z-index:20; background:rgba(217,178,106,.92); color:#111; border:none; border-radius:10px; padding:9px 13px; font-size:15px; }
+  #panel { position:absolute; top:calc(56px + env(safe-area-inset-top)); left:10px; z-index:10; width:310px; max-width:calc(100% - 20px); max-height:calc(100% - 80px); overflow:auto; color:#eee; background:rgba(20,20,22,.82); border-radius:12px; padding:12px 14px; font-size:13.5px; line-height:1.5; transition:transform .25s, opacity .25s; box-sizing:border-box; }
+  #panel.collapsed { transform:translateX(-115%); opacity:0; pointer-events:none; }
+  #panel h3 { margin:0 0 6px; font-size:15px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:7px 0; }
+  .row select, .row input[type=range] { flex:1; min-width:0; }
+  select { background:#2a2a2e; color:#fff; border:1px solid #444; border-radius:6px; padding:4px; font-size:13px; }
+  .go { background:#2d2d32; color:#ddd; border:1px solid #444; border-radius:8px; padding:5px 9px; font-size:13px; margin:2px; }
+  #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#ddd; font-size:16px; background:#0d0d0f; z-index:30; }
+  #joy { position:absolute; left:30px; bottom:calc(40px + env(safe-area-inset-bottom)); width:100px; height:100px; border-radius:50%; border:2px solid rgba(255,255,255,.5); background:rgba(255,255,255,.08); z-index:5; pointer-events:none; }
+  #hint { position:absolute; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); color:#fff; background:rgba(20,20,22,.6); padding:5px 10px; border-radius:8px; font-size:12px; z-index:5; }
+  small { color:#aaa; }
+</style>
+</head>
+<body>
+<div id="loading"><span id="loadtxt">載入中…</span></div>
+<button id="toggle">☰ 面板</button>
+<button id="modeBtn">切換</button>
+<div id="joy"></div>
+<div id="panel">
+  <h3>謝雲卿案｜下營營和段598-3 一樓</h3>
+  <div>快速移動：
+    <button class="go" data-p="230,1120,0">車庫入口</button>
+    <button class="go" data-p="380,720,0.24">玄關</button>
+    <button class="go" data-p="380,560,1.17">客廳</button>
+    <button class="go" data-p="250,200,-1.3">廚房</button>
+    <button class="go" data-p="160,40,2.54">樓梯口</button>
+    <button class="go" data-p="300,-150,2.7">後院</button>
+  </div>
+  <div class="row">區域 <select id="zone"></select></div>
+  <div class="row">磁磚 <select id="style"></select></div>
+  <div class="row">鋪法 <select id="pattern"><option value="grid">直鋪（對縫）</option><option value="half">1/2 錯縫</option><option value="third">1/3 錯縫</option></select></div>
+  <div class="row">縫寬 <input type="range" id="groutW" min="1" max="10" step="0.5"><span id="groutWv"></span></div>
+  <div class="row">縫色 <input type="color" id="groutC"></div>
+  <div class="row">畫質 <select id="quality"><option value="high">高（電腦）</option><option value="mobile">手機</option></select></div>
+  <small>依 p.3 一層平面圖（1:100）、p.7 剖面、p.11 材料粉刷表建模；磁磚以郭怡華案產品代用。<br>手機：左下拖曳＝移動，右側拖曳＝轉頭。電腦：WASD／方向鍵＋滑鼠拖曳。<br>家具：Poly Haven CC0。</small>
+  <div><a href="../" style="color:#d9b26a">← 磁磚模擬器</a></div>
+</div>
+<div id="hint">一樓 1F｜層高 340 cm</div>
+<script type="module" src="xie.js?v=1"></script>
+</body>
+</html>
