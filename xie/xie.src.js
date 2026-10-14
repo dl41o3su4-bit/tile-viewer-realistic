@@ -12,6 +12,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { WebGLPathTracer } from 'three-gpu-pathtracer';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -19,7 +20,7 @@ const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.m
 let quality = params.get('q') || (isMobile ? 'mobile' : 'high');
 
 // ---------- asset loading (assets stored as base64 text so the repo can be maintained through the GitHub API) ----------
-const VER = '7';
+const VER = '8';
 let loadedCount = 0, totalCount = 1;
 function progress() { $('loadtxt').textContent = `載入中… ${Math.round(100 * loadedCount / totalCount)}%`; }
 async function fetchB64(path) {
@@ -261,6 +262,11 @@ function bakeTilesRaw(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
   return { map: mk(albedo, true), normalMap: mk(nc, false), roughnessMap: mk(rc, false) };
 }
 
+// baked lighting: when a lightMap is bound, it REPLACES realtime diffuse (direct + env + hemi) — it holds Cycles-baked direct+indirect irradiance
+const BAKED_LM = `#include <lights_fragment_maps>
+#ifdef USE_LIGHTMAP
+  { vec3 lmT = texture2D( lightMap, vLightMapUv ).rgb; if ( lmT.r + lmT.g + lmT.b > 0.004 ) { irradiance = lmT * lightMapIntensity; iblIrradiance = vec3( 0.0 ); reflectedLight.directDiffuse = vec3( 0.0 ); } } // black texel = occluded/z-fought face in the bake → keep realtime
+#endif`;
 function tileMaterial(styleKey, reflect) {
   const st = STYLES[styleKey];
   const m = new THREE.MeshPhysicalMaterial({ roughness: st.rough, metalness: 0, clearcoat: 0, normalScale: new THREE.Vector2(1, 1) });
@@ -273,6 +279,7 @@ function tileMaterial(styleKey, reflect) {
       .replace('#include <roughnessmap_fragment>', `float roughnessFactor = roughness;
         vec4 texelRoughness = texture2D( roughnessMap, vRoughnessMapUv );
         roughnessFactor = mix(roughness * (0.8 + 0.4 * texelRoughness.b), uGroutRough, texelRoughness.g);`)
+      .replace('#include <lights_fragment_maps>', BAKED_LM)
       .replace('#include <opaque_fragment>', `
         if (uRefl > 0.0) {
           vec3 vd = normalize(vViewPosition);
@@ -435,7 +442,7 @@ function windowAlongX(z, a, b, sill, head, t) { // frame + glass in an X wall op
 }
 function doorPanel(alongX, c, a, b, h, openAng, mat) { // simple leaf, hinged at a
   const len = (b - a) / 100, leaf = new THREE.Mesh(new THREE.BoxGeometry(len, h, 0.04), mat); leaf.castShadow = true;
-  const piv = new THREE.Group(); piv.add(leaf); leaf.position.x = len / 2; leaf.position.y = h / 2;
+  const piv = new THREE.Group(); piv.userData.door = 1; piv.add(leaf); leaf.position.x = len / 2; leaf.position.y = h / 2;
   if (alongX) { piv.position.set(W(a), 0, Zw(c)); } else { piv.position.set(W(c), 0, Zw(a)); piv.rotation.y = -Math.PI / 2; }
   piv.rotation.y += openAng; house.add(piv);
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.025, 12, 8), M.chrome); knob.position.set(len - 0.07, 1.0, 0.04); leaf.add(knob); knob.position.y = 1.0 - h / 2;
@@ -459,6 +466,7 @@ function applyZone(k) {
     const m = it.mesh.material; setBaked(m, t);
     m.roughness = st.rough; m.clearcoat = st.rough < 0.3 ? 0.5 : 0; m.clearcoatRoughness = 0.1; const sig = (m.clearcoat > 0) + '|' + !!m.map; if (m.userData.sig !== sig) { m.userData.sig = sig; m.needsUpdate = true; } // perf: recompile only when the shader variant changes
   }
+  bakeSync();
   if (k === 'stair') renderer.shadowMap.needsUpdate = true; // perf: only the stair finish changes geometry
 }
 function ceilingBoardMat() { // C2 暗架矽酸鈣天花板 60×60
@@ -471,7 +479,7 @@ function ceilingRect(x0, x1, z0, z1, y, kind) {
   const w = (x1 - x0) / 100, d = (z1 - z0) / 100; let mat;
   if (kind === 'C2') { const t = ceilingBoardMat(); t.repeat.set(w / 0.6, d / 0.6); mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, side: THREE.DoubleSide }); }
   else mat = plasterMat(kind === 'C3' ? 0xe4e0d8 : 0xf6f5f2); 
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat); m.rotation.x = Math.PI / 2; m.position.set(W((x0 + x1) / 2), y, Zw((z0 + z1) / 2)); m.receiveShadow = true; ceilings.add(m);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat); m.rotation.x = Math.PI / 2; m.position.set(W((x0 + x1) / 2), y - 0.003, Zw((z0 + z1) / 2)); m.receiveShadow = true; ceilings.add(m); // 3 mm below the slab soffit: no z-fight with the slab's (dark, occluded) baked underside
   // slab above so light doesn't leak
   bx(x0, x1, y + 0.0, y + 0.15, z0, z1, M.concreteSlab, { parent: ceilings });
 }
@@ -537,7 +545,7 @@ function door2(name, hx, hz, cx, cz, ox, oz, frac, h, mat, y0 = 0) {
   const len = Math.hypot(cx - hx, cz - hz) / 100;
   const a0 = Math.atan2(-(cz - hz), cx - hx); let d = Math.atan2(-(oz - hz), ox - hx) - a0;
   while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-  const piv = new THREE.Group(); piv.position.set(W(hx), y0, Zw(hz)); piv.rotation.y = a0 + d * frac; house.add(piv);
+  const piv = new THREE.Group(); piv.userData.door = 1; piv.position.set(W(hx), y0, Zw(hz)); piv.rotation.y = a0 + d * frac; house.add(piv);
   const leaf = new THREE.Mesh(new THREE.BoxGeometry(len, h, 0.04), mat); leaf.position.set(len / 2, h / 2, 0); leaf.castShadow = true; leaf.receiveShadow = true; piv.add(leaf);
   for (const s of [1, -1]) { const k = new THREE.Mesh(new THREE.SphereGeometry(0.025, 12, 8), M.chrome); k.position.set(len / 2 - 0.07, 1.0 - h / 2, 0.035 * s); leaf.add(k); }
   const ring = new THREE.Mesh(new THREE.RingGeometry(len - 0.015, len, 48, 1, d < 0 ? a0 + d : a0, Math.abs(d)), arcMat);
@@ -913,7 +921,7 @@ function stepWalk() {
   camera.rotation.order = 'YXZ'; camera.rotation.set(walk.pitch, walk.yaw, 0);
 }
 let frameNo = 0;
-function animate() { requestAnimationFrame(animate); frameNo++; if (ortho) { renderer.render(scene, ortho); return; } stepWalk(); { const ht = mode === 'walk' ? (walk.y > 8 ? '屋頂 RF｜+1010' : walk.y > 5 ? '三樓 3F｜層高 320 cm' : walk.y > 2 ? '二樓 2F｜層高 320 cm' : '一樓 1F｜層高 340 cm') : '俯瞰：紅線＝門扇開啟範圍'; if ($('hint') && $('hint').textContent !== ht) $('hint').textContent = ht; } if (mode === 'orbit') controls.update(); composer.render(); }
+function animate() { requestAnimationFrame(animate); frameNo++; if (PT.active) return; if (ortho) { renderer.render(scene, ortho); return; } stepWalk(); { const ht = mode === 'walk' ? (walk.y > 8 ? '屋頂 RF｜+1010' : walk.y > 5 ? '三樓 3F｜層高 320 cm' : walk.y > 2 ? '二樓 2F｜層高 320 cm' : '一樓 1F｜層高 340 cm') : '俯瞰：紅線＝門扇開啟範圍'; if ($('hint') && $('hint').textContent !== ht) $('hint').textContent = ht; } if (mode === 'orbit') controls.update(); composer.render(); }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
 
 function initXieUI() {
@@ -935,8 +943,114 @@ function initXieUI() {
   document.querySelectorAll('.go').forEach(b => b.onclick = () => { const [x, z, yaw, lv = 1] = b.dataset.p.split(',').map(Number); setMode('walk'); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; walk.pitch = -0.08; walk.y = floorHeightAt(walk.x, walk.z, [0, 0, 3.4, 6.6, 9.8][lv] || 0); });
   document.querySelectorAll('.ext').forEach(b => b.onclick = () => { orbitLv = 0; setMode('orbit'); });
   if ($('orbitLv')) $('orbitLv').onchange = e => { orbitLv = +e.target.value; setMode('orbit'); };
+  { const L = $('lighting'); L.value = params.get('light') === 'rt' ? 'rt' : 'bake'; L.onchange = async e => { const ok = await setBakedLighting(e.target.value === 'bake'); if (!ok) L.value = 'rt'; }; }
   $('quality').value = quality; $('quality').onchange = e => { const u = new URL(location.href); u.searchParams.set('q', e.target.value); location.href = u.toString(); };
 }
+// ---------- 出效果圖: progressive path-traced still (three-gpu-pathtracer) ----------
+const PT = { active: false, pt: null, saved: [], target: 0, want: false, t0: 0 };
+async function startPathTrace() {
+  if (PT.active) return; const cam = ortho || camera; PT.active = true;
+  const ui = $('ptBox'); ui.style.display = 'block'; $('ptTxt').textContent = '準備場景（BVH）…';
+  // path tracer reads standard roughnessMap.g as roughness; our tile maps keep the grout mask there → use base roughness instead
+  scene.traverse(o => { if (o.isMesh && o.material && o.material.userData && o.material.userData.bk) { PT.saved.push([o.material, 'roughnessMap', o.material.roughnessMap]); o.material.roughnessMap = null; }
+    if (renderer.clippingPlanes.length && o.isMesh && o.visible) { const b = new THREE.Box3().setFromObject(o); const p = renderer.clippingPlanes[0];
+      const out = [b.min, b.max].every(v => p.distanceToPoint(v) < 0) || (p.normal.y < 0 && b.min.y > -p.constant) ; if (out) { PT.saved.push([o, 'visible', true]); o.visible = false; } } });
+  // GLB furniture is meshopt-quantized / interleaved → path tracer BVH needs plain float attributes (one-time conversion)
+  scene.traverse(o => { const g = o.isMesh && o.geometry; if (!g || g.userData.ptf) return; g.userData.ptf = 1;
+    for (const k in g.attributes) { const a = g.attributes[k]; if (a.isInterleavedBufferAttribute || !(a.array instanceof Float32Array)) {
+      if (k !== 'position' && k !== 'normal' && k !== 'uv' && k !== 'uv1' && k !== 'tangent' && k !== 'color') continue;
+      const n = a.count, s = a.itemSize, f = new Float32Array(n * s); for (let i = 0; i < n; i++) for (let j = 0; j < s; j++) f[i * s + j] = a.getComponent ? a.getComponent(i, j) : a.getX(i);
+      g.setAttribute(k, new THREE.BufferAttribute(f, s)); } } });
+  if (PT.env) { PT.saved.push([scene, 'environment', scene.environment]); scene.environment = PT.env; }
+  try {
+    const pt = new WebGLPathTracer(renderer); PT.pt = pt;
+    pt.tiles.set(isMobile ? 1 : 2, isMobile ? 1 : 2); pt.renderScale = isMobile ? 0.5 : 1; pt.minSamples = 0; pt.renderDelay = 0; pt.fadeDuration = 0;
+    pt.bounces = isMobile ? 3 : 6; pt.filterGlossyFactor = 0.5; pt.multipleImportanceSampling = true; pt.textureSize.set(1024, 1024);
+    await new Promise(r => setTimeout(r, 30)); pt.setScene(scene, cam);
+    PT.target = +(params.get('spp') || (isMobile ? 64 : 256)); PT.t0 = performance.now();
+    const loop = () => { if (!PT.active) return; pt.renderSample(); const n = Math.floor(pt.samples);
+      $('ptTxt').textContent = `路徑追蹤 ${n} / ${PT.target} spp｜${((performance.now() - PT.t0) / 1000).toFixed(0)} s`; window.__ptSamples = n;
+      if (PT.want) { PT.want = false; savePNG(); }
+      if (n < PT.target) requestAnimationFrame(loop); else { $('ptTxt').textContent += '｜完成'; window.__ptDone = true; } };
+    loop();
+  } catch (e) { console.error(e); window.__ptErr = String(e && e.stack); $('ptTxt').textContent = '此裝置不支援路徑追蹤，改存一般畫面'; stopPathTrace(); composer.render(); savePNG(); }
+}
+function savePNG() { renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `xie_效果圖_${schemeKey}_${Date.now()}.png`; a.click(); }); }
+function stopPathTrace() { PT.active = false; if (PT.pt) { try { PT.pt.dispose(); } catch (e) {} PT.pt = null; } for (const [o, k, v] of PT.saved.reverse()) o[k] = v; PT.saved = []; $('ptBox').style.display = 'none'; window.__ptDone = false; }
+function initPT() { $('ptBtn').onclick = startPathTrace; $('ptSave').onclick = () => { if (PT.pt && PT.pt.samples >= 1 && PT.active) { if (window.__ptDone) { PT.pt.renderSample(); savePNG(); } else PT.want = true; } };
+  $('ptClose').onclick = stopPathTrace; window.__pt = { start: startPathTrace, stop: stopPathTrace }; }
+// ---------- baked lightmaps (Cycles, offline) ----------
+const BK = { on: false, tex: null, meta: null, targets: null, clones: new Map(), K: 1 };
+function bakeTargets() { // deterministic list of lightmappable quads: 1-segment Plane/Box geometries of the static building (no doors)
+  const out = []; let door = false;
+  const walk = (o, d) => { if (o.userData.door) d = true; if (o.isMesh && !d && !o.isInstancedMesh && o.material && !o.material.transparent && !(o.material.transmission > 0)) {
+      const p = o.geometry.parameters, t = o.geometry.type;
+      if ((t === 'PlaneGeometry' && p.widthSegments === 1 && p.heightSegments === 1) || (t === 'BoxGeometry' && p.widthSegments === 1 && p.heightSegments === 1 && p.depthSegments === 1)) out.push(o); }
+    for (const c of o.children) walk(c, d); };
+  walk(house, false); return out;
+}
+function bakePack(targets, D, A) { // shelf-pack every quad (4 verts) into an A×A atlas at D texels/m; writes uv1
+  const cells = [], v = new THREE.Vector3(), w = new THREE.Vector3();
+  for (const [mi, m] of targets.entries()) { m.updateWorldMatrix(true, false); const g = m.geometry, P = g.attributes.position, nq = P.count / 4;
+    for (let q = 0; q < nq; q++) { const i = q * 4; v.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld); w.fromBufferAttribute(P, i + 1).applyMatrix4(m.matrixWorld); const a = v.distanceTo(w);
+      w.fromBufferAttribute(P, i + 2).applyMatrix4(m.matrixWorld); const b = v.distanceTo(w);
+      cells.push({ mi, i, cw: Math.min(512, Math.max(4, Math.ceil(a * D))) + 4, ch: Math.min(512, Math.max(4, Math.ceil(b * D))) + 4 }); } }
+  const order = cells.map((c, k) => k).sort((p, q) => cells[q].ch - cells[p].ch || p - q);
+  let x = 0, y = 0, rowH = 0; for (const k of order) { const c = cells[k]; if (x + c.cw > A) { x = 0; y += rowH; rowH = 0; } c.x = x; c.y = y; x += c.cw; rowH = Math.max(rowH, c.ch); }
+  const used = y + rowH; const uvs = targets.map(m => new Float32Array(m.geometry.attributes.position.count * 2));
+  for (const c of cells) { const uv = targets[c.mi].geometry.attributes.uv, U = uvs[c.mi];
+    for (let j = 0; j < 4; j++) { const u = uv.getX(c.i + j), vv = uv.getY(c.i + j); U[(c.i + j) * 2] = (c.x + 2 + u * (c.cw - 4)) / A; U[(c.i + j) * 2 + 1] = 1 - (c.y + 2 + (1 - vv) * (c.ch - 4)) / A; } }
+  return { cells: cells.length, used, uvs };
+}
+function bakeExport(D = 20, A = 4096) { // offline-bake export: world-space triangles + materials + lights (called headless by the bake script)
+  const targets = bakeTargets(), pk = bakePack(targets, D, A), tIdx = new Map(targets.map((m, i) => [m, i]));
+  const b64 = a => { const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768)); return btoa(s); };
+  const avgCache = new Map(), cv = document.createElement('canvas'); cv.width = cv.height = 4; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const avg = t => { if (!t || !t.image) return [1, 1, 1]; if (avgCache.has(t)) return avgCache.get(t); let r = [0.6, 0.6, 0.6]; try { cx.clearRect(0, 0, 4, 4); cx.drawImage(t.image, 0, 0, 4, 4); const d = cx.getImageData(0, 0, 4, 4).data; r = [0, 0, 0]; for (let i = 0; i < 64; i += 4) for (let k = 0; k < 3; k++) r[k] += Math.pow(d[i + k] / 255, 2.2) / 16; } catch (e) {} avgCache.set(t, r); return r; };
+  const meshes = [], wp = new THREE.Vector3(), vis = o => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
+  scene.updateMatrixWorld(true);
+  scene.traverse(o => { if (!o.isMesh || o.isInstancedMesh) return; const ti = tIdx.has(o) ? tIdx.get(o) : -1, shown = vis(o); if (!shown && ti < 0) return; if (o.userData.collider || (o.material && o.material.visible === false)) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material; if (!mat || mat.isShaderMaterial && !mat.isMeshStandardMaterial) { if (ti < 0) return; }
+    const g = o.geometry, P = g.attributes.position, n = P.count, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { wp.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); pos[i * 3] = wp.x; pos[i * 3 + 1] = wp.y; pos[i * 3 + 2] = wp.z; }
+    let idx = g.index ? Uint32Array.from(g.index.array) : Uint32Array.from({ length: n }, (_, i) => i);
+    if (o.matrixWorld.determinant() < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+    const c = mat && mat.color ? [mat.color.r, mat.color.g, mat.color.b] : [0.7, 0.7, 0.7], a = avg(mat && mat.map), alb = c.map((x, k) => Math.min(0.9, x * a[k]));
+    const glass = !!mat && (mat.transmission > 0.3 || (mat.transparent && mat.opacity < 0.7));
+    const em = mat && mat.emissive && mat.emissiveIntensity ? [mat.emissive.r, mat.emissive.g, mat.emissive.b].map(x => x * mat.emissiveIntensity) : [0, 0, 0];
+    meshes.push({ name: o.name || '', pos: b64(pos), idx: b64(idx), uv1: ti >= 0 ? b64(pk.uvs[ti]) : null, alb, glass, metal: mat && mat.metalness || 0, rough: mat && mat.roughness != null ? mat.roughness : 0.8, em, hidden: !shown, target: ti }); });
+  const lights = []; scene.traverse(o => { if (!o.isLight || !vis(o)) return; o.updateMatrixWorld(true); const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld), L = { type: o.type, pos: p.toArray(), color: [o.color.r, o.color.g, o.color.b], I: o.intensity };
+    if (o.target) { o.target.updateMatrixWorld(true); L.dir = new THREE.Vector3().setFromMatrixPosition(o.target.matrixWorld).sub(p).normalize().toArray(); }
+    if (o.isSpotLight) { L.angle = o.angle; L.penumbra = o.penumbra; } if (o.isRectAreaLight) { L.w = o.width; L.h = o.height; L.dir = new THREE.Vector3(0, 0, -1).applyQuaternion(o.getWorldQuaternion(new THREE.Quaternion())).toArray(); }
+    if (o.isHemisphereLight) { L.ground = [o.groundColor.r, o.groundColor.g, o.groundColor.b]; } lights.push(L); });
+  return { D, A, used: pk.used, cells: pk.cells, ntargets: targets.length, envI: scene.environmentIntensity, meshes, lights };
+}
+function bakedVariant(src) { // per-material clone carrying the lightmap (shared materials are also used by non-lightmapped meshes)
+  let c = BK.clones.get(src); if (c) return c; c = src.clone(); const ob = src.onBeforeCompile;
+  c.onBeforeCompile = (sh, r) => { if (ob) ob.call(c, sh, r); sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_maps>', BAKED_LM); };
+  c.customProgramCacheKey = () => 'baked|' + (src.customProgramCacheKey ? src.customProgramCacheKey() : ''); if (src.userData.u) c.userData.u = src.userData.u;
+  c.lightMap = BK.tex; c.lightMapIntensity = BK.K; if (c.side === THREE.DoubleSide) c.side = THREE.FrontSide; /* DoubleSide ceilings rendered black with the lightmap */ BK.clones.set(src, c); return c;
+}
+function bakeSync() { if (!BK.on) return; for (const [s, c] of BK.clones) for (const k of ['map', 'normalMap', 'roughnessMap', 'roughness', 'clearcoat', 'clearcoatRoughness', 'color']) if (k in s) { if (s[k] && s[k].isColor) c[k].copy(s[k]); else if (c[k] !== s[k]) { c[k] = s[k]; c.needsUpdate = true; } } }
+async function loadBake() {
+  if (BK.meta) return true;
+  try { BK.meta = await fetch('lm/lm.json?v=' + VER).then(r => r.json()); } catch (e) { return false; }
+  const imgs = await Promise.all(BK.meta.parts.map(p => fetch('lm/' + p + '?v=' + VER).then(r => r.text()).then(t => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = 'data:image/webp;base64,' + t.trim(); }))));
+  const cv = document.createElement('canvas'); cv.width = BK.meta.A; cv.height = BK.meta.used; const cx = cv.getContext('2d'); let y = 0; for (const im of imgs) { cx.drawImage(im, 0, y); y += im.height; }
+  const t = new THREE.CanvasTexture(cv); t.channel = 1; t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.LinearFilter; t.flipY = true;
+  BK.tex = t; BK.K = BK.meta.K; return true;
+}
+async function setBakedLighting(on) {
+  if (on && !(await loadBake())) { console.warn('no lightmap'); return false; }
+  const targets = bakeTargets(); if (on && targets.length !== BK.meta.ntargets) { console.warn('lightmap mismatch', targets.length, BK.meta.ntargets); return false; }
+  if (on && !BK.targets) { const A = BK.meta.A, pk = bakePack(targets, BK.meta.D, A); // atlas image is cropped to 'used' rows → rescale v
+      targets.forEach((m, i) => { const U = pk.uvs[i]; for (let k = 1; k < U.length; k += 2) U[k] = 1 - (1 - U[k]) * A / BK.meta.used; if (m.geometry.userData.lmShared) m.geometry = m.geometry.clone(); m.geometry.setAttribute('uv1', new THREE.BufferAttribute(U, 2)); m.geometry.userData.lmShared = 1; });
+      BK.targets = targets; }
+  BK.on = on;
+  for (const m of BK.targets || []) { if (on) { m.userData.lmSrc = m.material; m.material = bakedVariant(m.material); } else if (m.userData.lmSrc) { m.material = m.userData.lmSrc; } }
+  if (on) bakeSync(); window.__baked = on; return true;
+}
+window.__bake = { export: bakeExport, set: setBakedLighting, BK, pick(x, y) { const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(x, y), camera); const h = rc.intersectObjects(scene.children, true).find(i => i.object.visible && i.object.isMesh); if (!h) return null; const o = h.object; return { type: o.geometry.type, params: o.geometry.parameters, y: h.point.y, uv1: h.uv1 ? [h.uv1.x, h.uv1.y] : null, target: BK.targets ? BK.targets.indexOf(o) : -2, parent: o.parent && o.parent.type, mat: o.material.type, lm: !!o.material.lightMap }; } };
 window.__xie = { setMode, walk, W, WX, Zw, camera, controls, doorLog, colliders, floorHeightAt };
 
 (async function main() {
@@ -954,13 +1068,13 @@ window.__xie = { setMode, walk, W, WX, Zw, camera, controls, doorLog, colliders,
     for (const k of Object.keys(STYLES)) { const v = STYLES[k]; delete STYLES[k]; photo[k] = v; } Object.assign(STYLES, photo);
     const hdr = new RGBELoader().parse(hdrBuf); const tex = new THREE.DataTexture(hdr.data, hdr.width, hdr.height, THREE.RGBAFormat, hdr.type);
     tex.mapping = THREE.EquirectangularReflectionMapping; tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.needsUpdate = true; tex.flipY = true;
-    const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(tex).texture; scene.environmentIntensity = 0.45;
+    const pm = new THREE.PMREMGenerator(renderer); PT.env = tex; tex.mapping = THREE.EquirectangularReflectionMapping; tex.needsUpdate = true; scene.environment = pm.fromEquirectangular(tex).texture; scene.environmentIntensity = 0.45;
     scene.background = new THREE.Color(0xc9d6e2);
-    await buildHouse(); initXieUI();
+    await buildHouse(); initXieUI(); initPT();
     let lv0 = 1; const p = params.get('pos'); if (p) { const [x, z, yaw, pitch, lv] = p.split(',').map(Number); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; if (!isNaN(pitch)) walk.pitch = pitch; if (lv >= 2) lv0 = lv; }
     walk.y = floorHeightAt(walk.x, walk.z, [0, 0, 3.4, 6.6, 9.8][lv0]); if (params.get('olv') !== null) orbitLv = +params.get('olv');
     if (planLv) setupPlan(); else if (elevV) setupElev();
     setMode(mode);
-    $('loading').style.display = 'none'; window.__ready = true; animate();
+    if (params.get('light') !== 'rt') { try { if (!(await setBakedLighting(true))) $('lighting').value = 'rt'; } catch (e) { console.warn(e); $('lighting').value = 'rt'; } } $('loading').style.display = 'none'; window.__ready = true; animate();
   } catch (e) { console.error(e); $('loadtxt').textContent = '載入失敗：' + e.message; }
 })();
