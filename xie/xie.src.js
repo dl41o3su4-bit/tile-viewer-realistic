@@ -13,6 +13,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { WebGLPathTracer } from 'three-gpu-pathtracer';
+import { PTDenoiser } from './ptdenoise.js';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -949,7 +950,9 @@ function initXieUI() {
 // ---------- 出效果圖: progressive path-traced still (three-gpu-pathtracer) ----------
 const PT = { active: false, pt: null, saved: [], target: 0, want: false, t0: 0 };
 async function startPathTrace() {
-  if (PT.active) return; const cam = ortho || camera; PT.active = true;
+  if (PT.active) return; const cam = ortho || camera;
+  try { PT.dn = PT.dn || new PTDenoiser(renderer); composer.render(); PT.dn.captureCanvasLuma(); } catch (e) { console.warn(e); } // exposure reference = what the user sees now
+  PT.active = true;
   const ui = $('ptBox'); ui.style.display = 'block'; $('ptTxt').textContent = '準備場景（BVH）…';
   // path tracer reads standard roughnessMap.g as roughness; our tile maps keep the grout mask there → use base roughness instead
   scene.traverse(o => { if (o.isMesh && o.material && o.material.userData && o.material.userData.bk) { PT.saved.push([o.material, 'roughnessMap', o.material.roughnessMap]); o.material.roughnessMap = null; }
@@ -963,22 +966,28 @@ async function startPathTrace() {
       g.setAttribute(k, new THREE.BufferAttribute(f, s)); } } });
   if (PT.env) { PT.saved.push([scene, 'environment', scene.environment]); scene.environment = PT.env; }
   try {
-    const pt = new WebGLPathTracer(renderer); PT.pt = pt;
-    pt.tiles.set(isMobile ? 1 : 2, isMobile ? 1 : 2); pt.renderScale = isMobile ? 0.5 : 1; pt.minSamples = 0; pt.renderDelay = 0; pt.fadeDuration = 0;
-    pt.bounces = isMobile ? 3 : 6; pt.filterGlossyFactor = 0.5; pt.multipleImportanceSampling = true; pt.textureSize.set(1024, 1024);
+    const dn = PT.dn; dn.enabled = params.get('dn') !== '0';
+    const pt = new WebGLPathTracer(renderer); PT.pt = pt; pt.renderToCanvas = false;
+    pt.tiles.set(1, 1); pt.renderScale = isMobile ? 0.6 : 1; pt.minSamples = 0; pt.renderDelay = 0; pt.fadeDuration = 0;
+    pt.bounces = isMobile ? 4 : 6; pt.filterGlossyFactor = 0.8; pt.multipleImportanceSampling = true; pt.textureSize.set(1024, 1024);
     await new Promise(r => setTimeout(r, 30)); pt.setScene(scene, cam);
-    PT.target = +(params.get('spp') || (isMobile ? 64 : 256)); PT.t0 = performance.now();
-    const loop = () => { if (!PT.active) return; pt.renderSample(); const n = Math.floor(pt.samples);
-      $('ptTxt').textContent = `路徑追蹤 ${n} / ${PT.target} spp｜${((performance.now() - PT.t0) / 1000).toFixed(0)} s`; window.__ptSamples = n;
+    PT.target = +(params.get('spp') || (isMobile ? 512 : 1024)); PT.budget = +(params.get('ptsec') || (isMobile ? 45 : 90)) * 1000; PT.t0 = 0; PT.expoN = 0;
+    let built = false;
+    PT.show = () => { const t = pt.target; if (!built) { dn.setSize(t.width, t.height); dn.buildGuides(scene, cam); built = true; }
+      const n = pt.samples; dn.process(t.texture, n); if ((PT.expoN === 0 && n >= 4) || (PT.expoN === 1 && n >= 32) || PT.finalExpo) { dn.autoExposure(); PT.expoN++; PT.finalExpo = false; } dn.display(); };
+    const loop = () => { if (!PT.active) return; pt.renderSample(); const n = Math.floor(pt.samples); if (n >= 1 && !PT.t0) PT.t0 = performance.now();
+      const el = PT.t0 ? performance.now() - PT.t0 : 0, done = n >= PT.target || (el > PT.budget && n >= 8);
+      if (done) PT.finalExpo = true; if (n >= 1 && (done || n < 16 || n % 4 === 0 || PT.want)) PT.show(); else if (n >= 1) dn.display();
+      $('ptTxt').textContent = `路徑追蹤＋降噪 ${n} spp｜${(el / 1000).toFixed(0)} / ${(PT.budget / 1000).toFixed(0)} s`; window.__ptSamples = n; window.__ptExpo = dn.expo;
       if (PT.want) { PT.want = false; savePNG(); }
-      if (n < PT.target) requestAnimationFrame(loop); else { $('ptTxt').textContent += '｜完成'; window.__ptDone = true; } };
+      if (!done) requestAnimationFrame(loop); else { $('ptTxt').textContent += '｜完成'; window.__ptDone = true; } };
     loop();
   } catch (e) { console.error(e); window.__ptErr = String(e && e.stack); $('ptTxt').textContent = '此裝置不支援路徑追蹤，改存一般畫面'; stopPathTrace(); composer.render(); savePNG(); }
 }
 function savePNG() { renderer.domElement.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `xie_效果圖_${schemeKey}_${Date.now()}.png`; a.click(); }); }
 function stopPathTrace() { PT.active = false; if (PT.pt) { try { PT.pt.dispose(); } catch (e) {} PT.pt = null; } for (const [o, k, v] of PT.saved.reverse()) o[k] = v; PT.saved = []; $('ptBox').style.display = 'none'; window.__ptDone = false; }
-function initPT() { $('ptBtn').onclick = startPathTrace; $('ptSave').onclick = () => { if (PT.pt && PT.pt.samples >= 1 && PT.active) { if (window.__ptDone) { PT.pt.renderSample(); savePNG(); } else PT.want = true; } };
-  $('ptClose').onclick = stopPathTrace; window.__pt = { start: startPathTrace, stop: stopPathTrace }; }
+function initPT() { $('ptBtn').onclick = startPathTrace; $('ptSave').onclick = () => { if (PT.pt && PT.pt.samples >= 1 && PT.active) { if (window.__ptDone) { PT.show(); savePNG(); } else PT.want = true; } };
+  $('ptClose').onclick = stopPathTrace; window.__pt = { start: startPathTrace, stop: stopPathTrace }; window.__PTs = () => PT.pt ? [PT.pt.target.width, PT.pt.target.height, PT.dn.w, PT.dn.h, renderer.domElement.width, renderer.domElement.height] : null; }
 // ---------- baked lightmaps (Cycles, offline) ----------
 const BK = { on: false, tex: null, meta: null, targets: null, clones: new Map(), K: 1 };
 function bakeTargets() { // deterministic list of lightmappable quads: 1-segment Plane/Box geometries of the static building (no doors)
