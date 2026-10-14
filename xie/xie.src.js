@@ -19,7 +19,7 @@ const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.m
 let quality = params.get('q') || (isMobile ? 'mobile' : 'high');
 
 // ---------- asset loading (assets stored as base64 text so the repo can be maintained through the GitHub API) ----------
-const VER = '5';
+const VER = '6';
 let loadedCount = 0, totalCount = 1;
 function progress() { $('loadtxt').textContent = `載入中… ${Math.round(100 * loadedCount / totalCount)}%`; }
 async function fetchB64(path) {
@@ -351,21 +351,41 @@ const W = x => (x - 230) / 100, Zw = z => (z - 500) / 100; // local coords insid
 const WX = x => (230 - x) / 100; // world x of a plan x
 const house = new THREE.Group(); house.scale.x = -1; scene.add(house);
 const ceilings = new THREE.Group(); house.add(ceilings);
+const stairTile = new THREE.Group(), stairSlab = new THREE.Group(); house.add(stairTile, stairSlab); let treadPiece = null;
 const colliders = []; // {x0,x1,z0,z1} world
 const zones = {}; // key -> {style, pattern, groutMM, groutHex, meshes:[{mesh,w,d,seed}]}
 const ZONES = {
-  park:   { label: '停車空間 F1（30×60 止滑石英磚）', style: 'oak', pattern: 'half', groutMM: 3, groutHex: '#6b6863' },
-  living: { label: '客廳／廚房 F1（30×60 止滑石英磚）', style: 'jl3682', pattern: 'half', groutMM: 2, groutHex: '#a9a49c' },
-  bath:   { label: '浴廁 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 2, groutHex: '#8f8a83' },
-  bathwall: { label: '浴廁壁 W2（30×60 石英磚）', style: 'jl3632', pattern: 'half', groutMM: 2, groutHex: '#d9d6d0' },
-  stair:  { label: '樓梯 F3（20×20，踏階 20×26）', style: 'nt3201_20', pattern: 'grid', groutMM: 2, groutHex: '#9a958e' },
-  yard:   { label: '後院（PDF 未列，暫用 歐克石灰）', style: 'oak', pattern: 'grid', groutMM: 3, groutHex: '#6b6863' },
-  terrace: { label: '3F 露臺 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 3, groutHex: '#8f8a83' },
-  room2:  { label: '2F／3F 室內 F1（30×60 石英磚）', style: 'jl3682', pattern: 'half', groutMM: 2, groutHex: '#a9a49c' },
-  bath2:  { label: '2F／3F 浴廁 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 2, groutHex: '#8f8a83' },
-  bath2wall: { label: '2F／3F 浴廁壁 W2（30×60 石英磚）', style: 'jl3632', pattern: 'half', groutMM: 2, groutHex: '#d9d6d0' },
-  balcony: { label: '2F 陽台 F2（30×60 止滑石英磚）', style: 'jl3662', pattern: 'grid', groutMM: 3, groutHex: '#8f8a83' },
+  park:   { label: '1F 停車空間' }, living: { label: '1F 客廳／廚房' }, bath: { label: '1F 浴廁 地' }, bathwall: { label: '1F 浴廁 壁' },
+  stair:  { label: '樓梯 踏階' }, yard: { label: '1F 後院' }, room2: { label: '2F／3F 室內（臥室·起居·走道）' }, bath2: { label: '2F／3F 浴廁 地' },
+  bath2wall: { label: '2F／3F 浴廁 壁' }, balcony: { label: '2F 陽台' }, terrace: { label: '3F 露臺' },
 };
+const Z = (style, pattern, groutMM, groutHex) => ({ style, pattern, groutMM, groutHex });
+const SCHEMES = {
+  new: { name: '依新規劃（磁磚規劃 PDF）', z: { // 2026-10-14 新規劃 PDF
+    park: Z('oak', 'half', 3, '#6b6863'),            // p.1 車庫 3060 止滑石英磚 歐克石灰
+    living: Z('ayun1', 'grid', 1.5, '#cfcac2'),      // p.4 客廳廚房 8080 艾雲石（No.1 淺灰；PDF 列 3 色未定）
+    bath: Z('alps', 'grid', 2, '#9a958e'),           // p.6 廁所浴室 阿爾卑斯灰 3060 鑿面
+    bathwall: Z('jl3632', 'grid', 2, '#d9d6d0'),     // p.8–13 廁所搭配（範例：p.10 2F後浴 JL3632 30×60）
+    stair: Z('slab_bg', 'grid', 0, '#888888'),       // p.7 樓梯 大板 120×160×1.7 裁切倒角（色未定，暫用 伯爵灰 16F10）
+    yard: Z('oak', 'grid', 3, '#6b6863'),            // 未列 → 同車庫
+    room2: Z('mush_l', 'grid', 1.5, '#cfcac2'),      // p.4 房間 60×60 沐石淺灰（p.5 深灰 為選項）
+    bath2: Z('alps', 'grid', 2, '#9a958e'), bath2wall: Z('jl3632', 'grid', 2, '#d9d6d0'),
+    balcony: Z('alps', 'grid', 3, '#8f8a83'), terrace: Z('alps', 'grid', 3, '#8f8a83'), // 未列 → 用止滑 阿爾卑斯灰
+  } },
+  a3060: { name: '依建築圖 30×60（p.11 F1/F2/W2）', z: {
+    park: Z('oak', 'half', 3, '#6b6863'), living: Z('alps', 'half', 2, '#a9a49c'), room2: Z('alps', 'half', 2, '#a9a49c'), // F1 30×60 止滑石英磚
+    bath: Z('oak', 'grid', 2, '#6b6863'), bath2: Z('oak', 'grid', 2, '#6b6863'), balcony: Z('oak', 'grid', 3, '#6b6863'), terrace: Z('oak', 'grid', 3, '#6b6863'), yard: Z('oak', 'grid', 3, '#6b6863'), // F2
+    bathwall: Z('jl3632', 'half', 2, '#d9d6d0'), bath2wall: Z('jl3632', 'half', 2, '#d9d6d0'), // W2 30×60
+    stair: Z('slab_bg', 'grid', 0, '#888888'), // 依業主哥哥：大板瓷磚裁切加工倒角
+  } },
+  orig: { name: '原本', z: {
+    park: Z('oak', 'half', 3, '#6b6863'), living: Z('jl3682', 'half', 2, '#a9a49c'), bath: Z('jl3662', 'grid', 2, '#8f8a83'), bathwall: Z('jl3632', 'half', 2, '#d9d6d0'),
+    stair: Z('nt3201_20', 'grid', 2, '#9a958e'), yard: Z('oak', 'grid', 3, '#6b6863'), terrace: Z('jl3662', 'grid', 3, '#8f8a83'), room2: Z('jl3682', 'half', 2, '#a9a49c'),
+    bath2: Z('jl3662', 'grid', 2, '#8f8a83'), bath2wall: Z('jl3632', 'half', 2, '#d9d6d0'), balcony: Z('jl3662', 'grid', 3, '#8f8a83'),
+  } },
+};
+let schemeKey = SCHEMES[params.get('scheme')] ? params.get('scheme') : 'new';
+for (const k in ZONES) Object.assign(ZONES[k], SCHEMES[schemeKey].z[k]);
 for (const k in ZONES) zones[k] = { ...ZONES[k], meshes: [] };
 
 function addCollider(x0, x1, z0, z1, y0 = -1, y1 = 20) { colliders.push({ x0: WX(Math.max(x0, x1)), x1: WX(Math.min(x0, x1)), z0: Zw(Math.min(z0, z1)), z1: Zw(Math.max(z0, z1)), y0, y1 }); }
@@ -416,6 +436,7 @@ function tilePanel(zone, cx, cz, len, h, ry, y0 = 0, seed = 1) { // vertical til
 }
 function applyZone(k) {
   const z = zones[k], st = STYLES[z.style];
+  if (k === 'stair') { const sl = z.style.startsWith('slab'); stairSlab.visible = sl; stairTile.visible = !sl; }
   for (const it of z.meshes) {
     const t = bakeTiles(it.w, it.d, z.style, z.pattern, z.groutMM, z.groutHex, it.seed);
     const m = it.mesh.material; ['map', 'normalMap', 'roughnessMap'].forEach(q => { if (m[q]) m[q].dispose(); m[q] = t[q]; });
@@ -449,13 +470,16 @@ async function put(name, x, z, o = {}) { return place(house, name, { ...o, x: W(
 // stair per p.8 壹層樓梯平面圖: UP17 starts on a landing 91cm from Ⓐ (z 10..91), then risers 1–15 straight (+z, tread 22, x 20..105, 80 wide)
 // to a landing (108 deep, z 374..482, h=300 over the bathroom), then risers 16–17 turn right (+x, tread 22) to 2FL (+340).
 // v4 re-measure (p.3 1F/2F plans): flight top / landing start at z≈385, landing ends at the 2F bathroom wall (z≈480, '95' on 2F); 17 risers kept → bottom landing 77 (p.8 shows 91)
-const RISE = 0.2, ST = { x0: 20, x1: 105, zL: 77, tread: 22, nFlight: 14, landZ0: 385, landZ1: 475 };
+// v5 (verified vs p.8 section 18.9 ×18 and p.3/p.8 plans): 18 risers; bottom landing 91 from the stair-bay wall face (Ⓐ−12.6), risers 1–14 at z 79+22n,
+// narrow tread 14 (13 cm) to z 378, landing (15) z 378..475, turning steps 16, 17 toward ②, riser 18 onto 2FL.
+const RISE = 3.4 / 18, ST = { x0: 20, x1: 105, zL: 79, tread: 22, nFlight: 14, landZ0: 378, landZ1: 475 };
 // 2F→3F per p.4 參層: UP17 on 2F, risers 1–13 straight (+z, tread 22, first riser at z 111), landing z 375..507, risers 14–17 turn toward ② (x 110..200) to 3FL
-const ST2 = { zL: 111, tread: 22, n: 12, landZ0: 375, landZ1: 475, x1: 110 }, R3 = 3.2 / 17;
+const ST2 = { zL: 122, tread: 22, n: 12, landZ0: 375, landZ1: 475, x1: 110 }, R3 = 3.2 / 17;
 const F3 = 6.6, F3w = 6.5, RF = 9.8;
 function planXZ(xw, zw) { return [230 - xw * 100, zw * 100 + 500]; }
 function h1At(x, z) { // 1F + 1F→2F stair
-  if (z >= ST.landZ0 && z <= ST.landZ1 && x >= -5 && x <= 149) { if (x <= 105) return 3.0; if (x <= 127) return 3.2; return 3.4; }
+  if (z >= ST.landZ0 && z <= ST.landZ1 && x >= -5 && x <= 149) { if (x <= 105) return 15 * RISE; if (x <= 127) return 16 * RISE; if (x <= 149) return 17 * RISE; return 3.4; }
+  if (x >= -5 && x <= 105 && z >= -12.6 && z < 10) return 0; // stair-bay recess
   if (x >= -5 && x <= 108 && z >= 10 && z < ST.landZ0) { if (z < ST.zL) return 0; return Math.min(ST.nFlight, Math.floor((z - ST.zL) / ST.tread) + 1) * RISE; }
   if (z < 0 || z > 805 || (z > 620 && x < 300)) return -0.1; return 0;
 }
@@ -465,7 +489,7 @@ function h2At(x, z) { // 2F (FL 3.4, wet 3.3) + 2F→3F flight & landing
   if (z < -10) return 3.3;
   if (z < 10) return 3.4;
   if (x < ST2.x1 && z >= ST2.zL && z < ST2.landZ1) return z < ST2.landZ0 ? 3.4 + (Math.floor((z - ST2.zL) / ST2.tread) + 1) * R3 : 3.4 + 13 * R3;
-  if (x >= 105 && x < 149 && z >= 385 && z < 480) return null;
+  if (x >= 105 && x < 149 && z >= 378 && z < 480) return null;
   if (x < 305 && z >= 480 && z < 657) return 3.3;
   if (z >= 973) return inBay(x, z) ? 3.4 : null;
   return 3.4;
@@ -559,7 +583,7 @@ async function buildHouse() {
   floorRect('living', 105, 465, 0, 620, 0, 1);
   floorRect('living', 300, 465, 620, 805, 0, 2);
   floorRect('bath', -5, 105, 384, 620, 0.001, 3);
-  floorRect('stair', -5, 105, 10, 77, 0.001, 4);
+  floorRect('stair', -5, 105, -12.6, 79, 0.001, 4);
   floorRect('park', -5, 300, 620, 1160, -0.1, 5);
   floorRect('park', 300, 465, 805, 1160, -0.1, 6);
   floorRect('yard', -5, 465, -300, 0, -0.1, 7);
@@ -576,7 +600,8 @@ async function buildHouse() {
   // ---- columns 50×50 at grids, up to roof ----
   for (const x of [5, 455]) for (const z of [0, 620, 950]) bx(x - 25, x + 25, -0.1, TOP, z - 25, z + 25, z === 950 ? stone : paint, { collide: true });
   // ---- A wall (rear): D2 (90) to yard — hinge on ① side, swings OUT; W2 120 window ----
-  wallX(0, -5, 465, 20, H1, paint, [{ a: 120, b: 210, sill: 0, head: 2.2 }, { a: 275, b: 395, sill: 1.1, head: 2.3 }]);
+  wallX(0, 105, 465, 20, H1, paint, [{ a: 120, b: 210, sill: 0, head: 2.2 }, { a: 275, b: 395, sill: 1.1, head: 2.3 }]);
+  wallX(-22.6, -5, 105, 20, H1, paint); bx(105, 115, 0, H1, -14, -10, paint, { collide: true }); bx(-5, 105, H1 - 0.2, H1, -32.6, 0, M.concreteSlab); // stair-bay wall face at Ⓐ−12.6 (p.3 vector)
   windowAlongX(0, 275, 395, 1.1, 2.3); door2('D2', 120, 0, 210, 0, 120, -90, 0.6, 2.2, M.frame);
   // ---- B wall: W2a (bath 70), W1 (140) ; x 300..465 opens to 玄關 ----
   wallX(620, -5, 300, 15, H1, paint, [{ a: 20, b: 90, sill: 1.1, head: 2.3 }, { a: 150, b: 290, sill: 0.5, head: 2.3 }]);
@@ -595,19 +620,27 @@ async function buildHouse() {
   toilet(50, 384, 0, 1);
   basinAt(-5, 40, 505, 557, 0, [17, 531]); bx(-5, -4, 1.1, 1.75, 505, 557, new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.03 }));
   // ---- stair 1F→2F (p.8): landing 91, risers 1–15 along +z, landing 108 at +300, risers 16–17 turn toward ② ----
-  const stairMat = tileMaterial('nt3201_20', false); zones.stair.meshes.push({ mesh: { material: stairMat }, w: 0.3, d: 0.3, seed: 9 });
+  const stairMat = tileMaterial('nt3201_20', false); zones.stair.meshes.push({ mesh: { material: stairMat }, w: 1.0, d: 0.3, seed: 9 });
+  // tread finish in two interchangeable forms: tiled (thin tile on top) or large-slab porcelain cut pieces (1.7 cm tread with 2 cm rounded nosing + riser plate)
+  treadPiece = (x0, x1, z0, z1, top, rise, dir) => {
+    if (dir === 'z') { bx(x0, x1, top - 0.02, top, z0 - 1.5, z1, stairMat, { parent: stairTile });
+      bx(x0, x1, top - 0.017, top, z0 - 3.5, z1, stairMat, { parent: stairSlab, r: 0.007 }); bx(x0, x1, top - rise, top - 0.017, z0 - 1.7, z0, stairMat, { parent: stairSlab, cast: false }); }
+    else { bx(x0 - 1.5, x1, top - 0.02, top, z0, z1, stairMat, { parent: stairTile });
+      bx(x0 - 3.5, x1, top - 0.017, top, z0, z1, stairMat, { parent: stairSlab, r: 0.007 }); bx(x0 - 1.7, x0, top - rise, top - 0.017, z0, z1, stairMat, { parent: stairSlab, cast: false }); }
+  };
   for (let i = 1; i <= ST.nFlight; i++) {
     const z0 = ST.zL + (i - 1) * ST.tread, z1 = z0 + ST.tread, top = i * RISE;
     if (z0 < 379) bx(-5, ST.x1, 0, top - 0.02, z0, Math.min(z1, 379), paint);
     if (z1 > 379) bx(-5, ST.x1, Math.max(2.55, top - 0.25), top - 0.02, Math.max(z0, 379), z1, paint);
-    bx(ST.x0, ST.x1, top - 0.02, top, z0 - 1.5, z1, stairMat);
-    bx(-5, ST.x0, top - 0.02, top, z0, z1, paint);
+    treadPiece(ST.x0, ST.x1, z0, Math.min(z1, ST.landZ0), top, RISE, 'z');
+    bx(-5, ST.x0, top - 0.02, top, z0, Math.min(z1, ST.landZ0), paint);
     bx(105, 115, 0, Math.min(3.0, top + 0.9), z0, z1, paint, { collide: true });
   }
   bx(105, 115, 3.0, 3.4, ST.zL, ST.landZ0, paint);
-  bx(-5, 105, 2.85, 2.98, ST.landZ0, ST.landZ1, M.concreteSlab); bx(-5, 105, 2.98, 3.0, ST.landZ0, ST.landZ1, stairMat);
-  bx(105, 127, 2.85, 3.18, ST.landZ0, ST.landZ1, paint); bx(105, 127, 3.18, 3.2, ST.landZ0, ST.landZ1, stairMat);
-  bx(127, 149, 2.85, 3.38, ST.landZ0, ST.landZ1, paint); bx(127, 149, 3.38, 3.4, ST.landZ0, ST.landZ1, stairMat);
+  { const L15 = 15 * RISE; bx(-5, 105, L15 - 0.15, L15 - 0.02, ST.landZ0, ST.landZ1, M.concreteSlab); treadPiece(ST.x0 - 25, 105, ST.landZ0, ST.landZ1, L15, RISE, 'z');
+    bx(105, 127, L15 - 0.15, 16 * RISE - 0.02, ST.landZ0, ST.landZ1, paint); treadPiece(105, 127, ST.landZ0, ST.landZ1, 16 * RISE, RISE, 'x');
+    bx(127, 149, L15 - 0.15, 17 * RISE - 0.02, ST.landZ0, ST.landZ1, paint); treadPiece(127, 149, ST.landZ0, ST.landZ1, 17 * RISE, RISE, 'x');
+    treadPiece(149, 151, ST.landZ0, ST.landZ1, 3.4, RISE, 'x'); }
   { const L = Math.hypot((ST.nFlight * ST.tread) / 100, ST.nFlight * RISE);
     const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
     hr.position.set(W(110), 0.95 + ST.nFlight * RISE / 2, Zw(ST.zL + ST.nFlight * ST.tread / 2)); hr.rotation.x = Math.atan2(ST.nFlight * ST.tread / 100, ST.nFlight * RISE); house.add(hr); }
@@ -655,12 +688,12 @@ async function buildHouse() {
   // ================= 2F (p.3 貳層平面圖, H=320) =================
   // slab (3.21–3.39) except stair void x −5..105 z 91..507 and the turning risers x 105..149 z 399..507
   const slab = (x0, x1, z0, z1, y0 = 3.21, y1 = 3.39) => bx(x0, x1, y0, y1, z0, z1, M.concreteSlab, { cast: true });
-  slab(-5, 465, 0, 111); slab(110, 465, 111, 385); slab(149, 465, 385, 480); slab(305, 465, 480, 660); slab(-5, 305, 480, 660, 3.12, 3.29); slab(-5, 465, 660, 973);
+  slab(-5, 465, 0, 122); slab(110, 465, 122, 378); slab(149, 465, 378, 480); slab(305, 465, 480, 660); slab(-5, 305, 480, 660, 3.12, 3.29); slab(-5, 465, 660, 973);
   slab(-5, 465, -160, 0, 3.1, 3.29);
   floorPoly(null, [[152, 973], [333, 1035], [383, 973]], 3.21).material = M.concreteSlab;
-  floorRect('room2', 115, 465, 10, 385, F2, 21); floorRect('room2', 149, 465, 385, 480, F2, 22); floorRect('room2', 305, 465, 480, 660, F2, 23);
+  floorRect('room2', 115, 465, 10, 378, F2, 21); floorRect('room2', 149, 465, 378, 480, F2, 22); floorRect('room2', 305, 465, 480, 660, F2, 23);
   floorRect('room2', -5, 465, 660, 973, F2, 24); floorPoly('room2', [[152, 973], [333, 1035], [383, 973]], F2, 25);
-  floorRect('stair', -5, 115, 10, 111, F2 + 0.001, 26);
+  floorRect('stair', -5, 115, 10, 122, F2 + 0.001, 26);
   floorRect('bath2', -5, 305, 485, 652, F2w, 27); floorRect('balcony', -5, 465, -160, -10, F2w, 28);
   bx(300, 310, F2w, F2, 520, 595, M.counter, { cast: false }); // bath threshold (−10)
   // rear wall: DW1 240×220 (fixed 60 + sliding 90+90) to balcony
@@ -672,14 +705,14 @@ async function buildHouse() {
   for (let j = 1; j <= ST2.n; j++) {
     const z0 = ST2.zL + (j - 1) * ST2.tread, z1 = z0 + ST2.tread, top = F2 + j * R3;
     bx(-5, 105, Math.max(F2 - 0.15, top - 0.3), top - 0.02, z0, z1, paint);
-    bx(ST.x0, 105, top - 0.02, top, z0 - 1.5, z1, stairMat); bx(-5, ST.x0, top - 0.02, top, z0, z1, paint);
+    const zc = Math.min(z1, ST2.landZ0); treadPiece(ST.x0, 105, z0, zc, top, R3, 'z'); bx(-5, ST.x0, top - 0.02, top, z0, zc, paint);
     bx(105, 115, F2, top + 0.9, z0, z1, paint, { collide: true });
   }
-  { const yl = F2 + 13 * R3; bx(-5, ST2.x1, yl - 0.2, yl - 0.02, ST2.landZ0, ST2.landZ1, M.concreteSlab); bx(-5, ST2.x1, yl - 0.02, yl, ST2.landZ0 - 1.5, ST2.landZ1, stairMat);
-    for (let k = 14; k <= 17; k++) { const x0 = 110 + (k - 14) * 22.5, top = F2 + k * R3; bx(x0, x0 + 22.5, top - 0.25, top - 0.02, ST2.landZ0, ST2.landZ1, paint); bx(x0 - 1.5, x0 + 22.5, top - 0.02, top, ST2.landZ0, ST2.landZ1, stairMat); } }
+  { const yl = F2 + 13 * R3; bx(-5, ST2.x1, yl - 0.2, yl - 0.02, ST2.landZ0, ST2.landZ1, M.concreteSlab); treadPiece(ST.x0 - 25, ST2.x1, ST2.landZ0, ST2.landZ1, yl, R3, 'z');
+    for (let k = 14; k <= 17; k++) { const x0 = 110 + (k - 14) * 22.5, top = F2 + k * R3; bx(x0, x0 + 22.5, top - 0.25, top - 0.02, ST2.landZ0, ST2.landZ1, paint); treadPiece(x0, x0 + 22.5, ST2.landZ0, ST2.landZ1, top, R3, 'x'); } }
   { const L = Math.hypot((ST2.n * ST2.tread) / 100, ST2.n * R3); const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
     hr.position.set(W(117), F2 + 0.95 + ST2.n * R3 / 2, Zw(ST2.zL + ST2.n * ST2.tread / 2)); hr.rotation.x = Math.atan2(ST2.n * ST2.tread / 100, ST2.n * R3); house.add(hr); }
-  bx(115, 149, F2, F2 + 0.95, 382, 385, M.steel, { collide: true }); // guard at the 1F→2F arrival
+  bx(115, 149, F2, F2 + 0.95, 375, 378, M.steel, { collide: true }); // guard at the 1F→2F arrival
   let linen, duvet;
   const bedBath = (F, Fw, tag, y0a) => {
   // 2F bathroom 310×135 (F floor, W2 walls, C2 ceiling): D3 75 in the hall-side wall, hinge at the stair end, swings IN
@@ -710,7 +743,7 @@ async function buildHouse() {
   };
   bedBath(F2, F2w, '2F', 2.85);
   // 2F ceilings (C1 paint 290) + roof slab cap
-  ceilingRect(200, 465, 0, 480, 6.3, 'C1'); ceilingRect(115, 200, 0, 375, 6.3, 'C1'); ceilingRect(-5, 110, 0, 111, 6.3, 'C1'); ceilingRect(305, 465, 480, 657, 6.3, 'C1'); ceilingRect(-5, 465, 657, 973, 6.3, 'C1');
+  ceilingRect(200, 465, 0, 480, 6.3, 'C1'); ceilingRect(115, 200, 0, 375, 6.3, 'C1'); ceilingRect(-5, 110, 0, 122, 6.3, 'C1'); ceilingRect(305, 465, 480, 657, 6.3, 'C1'); ceilingRect(-5, 465, 657, 973, 6.3, 'C1');
   [[220, 120], [360, 120], [220, 300], [380, 300], [380, 580], [120, 780], [330, 780], [220, 920]].forEach(([x, z], i) => dl(x, z, 6.3, 4.5, false));
   dl(150, 585, F2w + 2.4, 3, false); dl(60, 330, 9.5, 7, false); dl(60, 460, 9.5, 5, false); dl(60, 170, 7.8, 4, false);
   { const pl = new THREE.PointLight(0xffe6cc, 3, 6, 2); pl.position.set(W(50), 4.8, Zw(300)); house.add(pl); }
@@ -867,11 +900,13 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 function initXieUI() {
   $('toggle').onclick = () => $('panel').classList.toggle('collapsed');
   if (isMobile || params.has('shot')) $('panel').classList.add('collapsed');
+  const sch = $('scheme'); for (const [k, v] of Object.entries(SCHEMES)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name; sch.appendChild(o); } sch.value = schemeKey;
   const zs = $('zone'); for (const [k, z] of Object.entries(zones)) { const o = document.createElement('option'); o.value = k; o.textContent = z.label; zs.appendChild(o); }
   const sel = $('style');
   for (const [k, v] of Object.entries(STYLES)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name + (v.page ? `（PDF p.${v.page}）` : ''); sel.appendChild(o); }
   const sync = () => { const z = zones[zs.value]; sel.value = z.style; $('pattern').value = z.pattern; $('groutW').value = z.groutMM; $('groutWv').textContent = z.groutMM + ' mm'; $('groutC').value = z.groutHex; };
   zs.onchange = sync; sync();
+  sch.onchange = () => { schemeKey = sch.value; for (const k in zones) { Object.assign(zones[k], SCHEMES[schemeKey].z[k]); applyZone(k); } sync(); };
   sel.onchange = () => { zones[zs.value].style = sel.value; applyZone(zs.value); };
   $('pattern').onchange = e => { zones[zs.value].pattern = e.target.value; applyZone(zs.value); };
   $('groutW').oninput = e => $('groutWv').textContent = e.target.value + ' mm';
@@ -888,12 +923,14 @@ window.__xie = { setMode, walk, W, WX, Zw, camera, controls, doorLog, colliders,
 (async function main() {
   try {
     initMaterials(); setupPipeline();
-    const [hdrBuf, presets] = await Promise.all([fetchB64('lebombo_1k.hdr'), fetch('../assets/tiles.json?v=' + VER).then(r => r.json())]);
+    const [hdrBuf, presets, xiePresets] = await Promise.all([fetchB64('lebombo_1k.hdr'), fetch('../assets/tiles.json?v=' + VER).then(r => r.json()), fetch('tiles_xie.json?v=' + VER).then(r => r.json())]);
+    Object.assign(presets, xiePresets);
     const photo = {};
     await Promise.all(Object.entries(presets).map(async ([k, p]) => {
       const imgs = await Promise.all(p.data.map(async u => { const im = new Image(); im.src = u; await im.decode(); return im; }));
       photo[k] = { name: p.name, page: p.page, size: p.size, rough: p.rough, slip: p.slip, kind: 'photo', polished: p.polished, bump: p.bump, imgs };
     }));
+    photo.slab_bg = { ...photo.st16f10, size: [1.6, 1.2], name: '大板瓷磚 伯爵灰 16F10 120×160×1.7（裁切倒角）' }; photo.slab_w = { ...photo.st16f03, size: [1.6, 1.2], name: '大板瓷磚 白如玉 16F03 120×160×1.7（裁切倒角）' };
     photo.nt3201_20 = { ...photo.nt3201, size: [0.2, 0.2], name: '止滑石英磚 NT3201 淺灰（以 20×20 呈現，F3 代用）' };
     for (const k of Object.keys(STYLES)) { const v = STYLES[k]; delete STYLES[k]; photo[k] = v; } Object.assign(STYLES, photo);
     const hdr = new RGBELoader().parse(hdrBuf); const tex = new THREE.DataTexture(hdr.data, hdr.width, hdr.height, THREE.RGBAFormat, hdr.type);
