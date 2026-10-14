@@ -19,7 +19,7 @@ const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.m
 let quality = params.get('q') || (isMobile ? 'mobile' : 'high');
 
 // ---------- asset loading (assets stored as base64 text so the repo can be maintained through the GitHub API) ----------
-const VER = '6';
+const VER = '7';
 let loadedCount = 0, totalCount = 1;
 function progress() { $('loadtxt').textContent = `載入中… ${Math.round(100 * loadedCount / totalCount)}%`; }
 async function fetchB64(path) {
@@ -27,10 +27,10 @@ async function fetchB64(path) {
   const r = await fetch(`../assets/${path}.b64?v=${VER}`);
   if (!r.ok) throw new Error('fetch ' + path + ' ' + r.status);
   const s = (await r.text()).replace(/\s+/g, '');
-  const bin = atob(s); const u8 = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  // perf: native base64 decode (no per-byte JS loop)
+  const buf = Uint8Array.fromBase64 ? Uint8Array.fromBase64(s).buffer : await (await fetch('data:application/octet-stream;base64,' + s)).arrayBuffer();
   loadedCount++; progress();
-  return u8.buffer;
+  return buf;
 }
 const gltfLoader = new GLTFLoader(); gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 const modelCache = {};
@@ -119,7 +119,7 @@ function getVariants(styleKey, pw, ph) {
   if (variantCache[key]) return variantCache[key];
   const st = STYLES[styleKey], out = [];
   for (let v = 0; v < 4; v++) {
-    const c = document.createElement('canvas'); c.width = pw; c.height = ph; const ctx = c.getContext('2d');
+    const c = document.createElement('canvas'); c.width = pw; c.height = ph; const ctx = c.getContext('2d', { willReadFrequently: true });
     if (st.kind === 'photo') {
       const img = st.imgs[v % st.imgs.length], t = Math.floor(v / st.imgs.length) % 4;
       ctx.save(); ctx.translate(pw / 2, ph / 2);
@@ -173,7 +173,23 @@ function layout(W, H, tw, th, pattern) {
   return rects;
 }
 
+// perf: baked tile maps are memoised per (size, style, pattern, grout, seed, quality); LRU-bounded by pixel budget, textures in use are never disposed
+const bakeCache = new Map(); let bakeBytes = 0; const texUse = new Map();
+const BAKE_BUDGET = () => (quality === 'high' ? 1400e6 : 200e6);
+function setBaked(m, t) { if (m.userData.bk) texRef(m.userData.bk, -1); m.userData.bk = t; if (t) { texRef(t, +1); m.map = t.map; m.normalMap = t.normalMap; m.roughnessMap = t.roughnessMap; } }
+function texRef(t, d) { for (const q of ['map', 'normalMap', 'roughnessMap']) if (t && t[q]) texUse.set(t[q], (texUse.get(t[q]) || 0) + d); }
 function bakeTiles(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
+  const key = [W.toFixed(4), H.toFixed(4), styleKey, pattern, groutMM, groutHex, seed, quality].join('|');
+  let e = bakeCache.get(key);
+  if (e) { bakeCache.delete(key); bakeCache.set(key, e); return e.t; }
+  const t = bakeTilesRaw(W, H, styleKey, pattern, groutMM, groutHex, seed);
+  const img = t.map.image, bytes = img.width * img.height * 4 * 3; bakeCache.set(key, { t, bytes }); bakeBytes += bytes;
+  for (const [k, v] of bakeCache) { if (bakeBytes <= BAKE_BUDGET() || bakeCache.size <= 1) break;
+    if (['map', 'normalMap', 'roughnessMap'].some(q => (texUse.get(v.t[q]) || 0) > 0)) continue;
+    bakeCache.delete(k); bakeBytes -= v.bytes; for (const q of ['map', 'normalMap', 'roughnessMap']) { v.t[q].dispose(); texUse.delete(v.t[q]); } }
+  return t;
+}
+function bakeTilesRaw(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
   const st = STYLES[styleKey];
   let ppm = quality === 'high' ? 600 : 340; ppm = Math.min(ppm, 4096 / Math.max(W, H));
   const cw = Math.round(W * ppm), ch = Math.round(H * ppm);
@@ -181,8 +197,8 @@ function bakeTiles(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
   const pw = Math.round(tw * ppm), ph = Math.round(th * ppm);
   const vars = getVariants(styleKey, pw, ph);
   const albedo = document.createElement('canvas'); albedo.width = cw; albedo.height = ch;
-  const actx = albedo.getContext('2d'); actx.fillStyle = groutHex; actx.fillRect(0, 0, cw, ch);
-  const hc = document.createElement('canvas'); hc.width = cw; hc.height = ch; const hctx = hc.getContext('2d');
+  const actx = albedo.getContext('2d', { willReadFrequently: true }); actx.fillStyle = groutHex; actx.fillRect(0, 0, cw, ch);
+  const hc = document.createElement('canvas'); hc.width = cw; hc.height = ch; const hctx = hc.getContext('2d', { willReadFrequently: true });
   hctx.fillStyle = '#000'; hctx.fillRect(0, 0, cw, ch);
   const R = rand(seed * 977 + 3);
   const tileVar = [];
@@ -222,24 +238,25 @@ function bakeTiles(W, H, styleKey, pattern, groutMM, groutHex, seed = 1) {
   const depth = 0.0025 * ppm * 0.9, slip = st.slip;
   const bump = st.kind === 'photo' ? (st.bump || 0.5) : 0; let Lum = null;
   if (bump) { Lum = new Float32Array(cw * ch); for (let i = 0; i < cw * ch; i++) Lum[i] = (A[i * 4] + A[i * 4 + 1] + A[i * 4 + 2]) / 765; }
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-    const i = y * cw + x, j = i * 4;
-    let h = Hh[i];
-    const hx = Hh[y * cw + Math.min(cw - 1, x + 1)] - Hh[y * cw + Math.max(0, x - 1)];
-    const hy = Hh[Math.max(0, y - 1) * cw + x] - Hh[Math.min(ch - 1, y + 1) * cw + x];
+  for (let y = 0; y < ch; y++) { const ro = y * cw, ru = (y > 0 ? y - 1 : 0) * cw, rd = (y < ch - 1 ? y + 1 : ch - 1) * cw, my = y / ppm * 300;
+   for (let x = 0; x < cw; x++) {
+    const i = ro + x, j = i * 4, xr = x < cw - 1 ? x + 1 : cw - 1, xl = x > 0 ? x - 1 : 0;
+    const h = Hh[i];
+    const hx = Hh[ro + xr] - Hh[ro + xl];
+    const hy = Hh[ru + x] - Hh[rd + x];
     let nx = -hx * depth, ny = -hy * depth;
-    if (bump && h > 0.9) { nx -= (Lum[y * cw + Math.min(cw - 1, x + 1)] - Lum[y * cw + Math.max(0, x - 1)]) * bump * 2.0; ny -= (Lum[Math.max(0, y - 1) * cw + x] - Lum[Math.min(ch - 1, y + 1) * cw + x]) * bump * 2.0; }
-    if (slip && h > 0.9) { const mx = x / ppm * 300, my = y / ppm * 300; nx += (n(mx, my) - n(mx + 1, my)) * 0.6; ny += (n(mx, my) - n(mx, my + 1)) * 0.6; }
-    const l = Math.hypot(nx, ny, 1);
+    if (bump && h > 0.9) { nx -= (Lum[ro + xr] - Lum[ro + xl]) * bump * 2.0; ny -= (Lum[ru + x] - Lum[rd + x]) * bump * 2.0; }
+    if (slip && h > 0.9) { const mx = x / ppm * 300, n0 = n(mx, my); nx += (n0 - n(mx + 1, my)) * 0.6; ny += (n0 - n(mx, my + 1)) * 0.6; }
+    const l = Math.sqrt(nx * nx + ny * ny + 1);
     Nd[j] = (nx / l * 0.5 + 0.5) * 255; Nd[j + 1] = (ny / l * 0.5 + 0.5) * 255; Nd[j + 2] = (1 / l * 0.5 + 0.5) * 255; Nd[j + 3] = 255;
     const groutMask = 1 - Math.min(1, h * 1.05);
     const ao = 0.62 + 0.38 * Math.min(1, h * 1.3);
     A[j] *= ao; A[j + 1] *= ao; A[j + 2] *= ao;
     Rd[j] = 255; Rd[j + 1] = groutMask * 255; Rd[j + 2] = hd[j + 1]; Rd[j + 3] = 255;
-  }
+  } }
   actx.putImageData(ad, 0, 0);
-  const nc = document.createElement('canvas'); nc.width = cw; nc.height = ch; nc.getContext('2d').putImageData(N, 0, 0);
-  const rc = document.createElement('canvas'); rc.width = cw; rc.height = ch; rc.getContext('2d').putImageData(Rr, 0, 0);
+  const nc = document.createElement('canvas'); nc.width = cw; nc.height = ch; nc.getContext('2d', { willReadFrequently: true }).putImageData(N, 0, 0);
+  const rc = document.createElement('canvas'); rc.width = cw; rc.height = ch; rc.getContext('2d', { willReadFrequently: true }).putImageData(Rr, 0, 0);
   const mk = (c, srgb) => { const t = new THREE.CanvasTexture(c); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.generateMipmaps = true; return t; };
   return { map: mk(albedo, true), normalMap: mk(nc, false), roughnessMap: mk(rc, false) };
 }
@@ -439,10 +456,10 @@ function applyZone(k) {
   if (k === 'stair') { const sl = z.style.startsWith('slab'); stairSlab.visible = sl; stairTile.visible = !sl; }
   for (const it of z.meshes) {
     const t = bakeTiles(it.w, it.d, z.style, z.pattern, z.groutMM, z.groutHex, it.seed);
-    const m = it.mesh.material; ['map', 'normalMap', 'roughnessMap'].forEach(q => { if (m[q]) m[q].dispose(); m[q] = t[q]; });
-    m.roughness = st.rough; m.clearcoat = st.rough < 0.3 ? 0.5 : 0; m.clearcoatRoughness = 0.1; m.needsUpdate = true;
+    const m = it.mesh.material; setBaked(m, t);
+    m.roughness = st.rough; m.clearcoat = st.rough < 0.3 ? 0.5 : 0; m.clearcoatRoughness = 0.1; const sig = (m.clearcoat > 0) + '|' + !!m.map; if (m.userData.sig !== sig) { m.userData.sig = sig; m.needsUpdate = true; } // perf: recompile only when the shader variant changes
   }
-  renderer.shadowMap.needsUpdate = true;
+  if (k === 'stair') renderer.shadowMap.needsUpdate = true; // perf: only the stair finish changes geometry
 }
 function ceilingBoardMat() { // C2 暗架矽酸鈣天花板 60×60
   const s = 512, c = document.createElement('canvas'); c.width = c.height = s; const x = c.getContext('2d');
@@ -643,7 +660,8 @@ async function buildHouse() {
     treadPiece(149, 151, ST.landZ0, ST.landZ1, 3.4, RISE, 'x'); }
   { const L = Math.hypot((ST.nFlight * ST.tread) / 100, ST.nFlight * RISE);
     const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
-    hr.position.set(W(110), 0.95 + ST.nFlight * RISE / 2, Zw(ST.zL + ST.nFlight * ST.tread / 2)); hr.rotation.x = Math.atan2(ST.nFlight * ST.tread / 100, ST.nFlight * RISE); house.add(hr); }
+    hr.position.set(W(98.5), 0.9 + ST.nFlight * RISE / 2, Zw(ST.zL + ST.nFlight * ST.tread / 2)); hr.rotation.x = Math.atan2(ST.nFlight * ST.tread / 100, ST.nFlight * RISE); house.add(hr); }
+  for (const t of [0.12, 0.5, 0.88]) { const y = 0.9 + t * ST.nFlight * RISE - 0.03, z = ST.zL + t * ST.nFlight * ST.tread; bx(99.5, 105, y - 0.01, y + 0.01, z - 1, z + 1, M.steel, { cast: false }); } // wall brackets
   // ---- front facade: SW1 roll-up 345 (open), D5 100 meter-room door — hinge on ① side, swings IN ----
   wallX(1160, 340, 465, 20, H1, stone, [{ a: 360, b: 460, sill: 0, head: 2.5 }]);
   bx(-5, 340, 2.6, H1, 1150, 1170, stone); bx(-5, 340, 2.45, 2.6, 1150, 1162, M.steel);
@@ -711,7 +729,8 @@ async function buildHouse() {
   { const yl = F2 + 13 * R3; bx(-5, ST2.x1, yl - 0.2, yl - 0.02, ST2.landZ0, ST2.landZ1, M.concreteSlab); treadPiece(ST.x0 - 25, ST2.x1, ST2.landZ0, ST2.landZ1, yl, R3, 'z');
     for (let k = 14; k <= 17; k++) { const x0 = 110 + (k - 14) * 22.5, top = F2 + k * R3; bx(x0, x0 + 22.5, top - 0.25, top - 0.02, ST2.landZ0, ST2.landZ1, paint); treadPiece(x0, x0 + 22.5, ST2.landZ0, ST2.landZ1, top, R3, 'x'); } }
   { const L = Math.hypot((ST2.n * ST2.tread) / 100, ST2.n * R3); const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, L, 12), M.darkwood);
-    hr.position.set(W(117), F2 + 0.95 + ST2.n * R3 / 2, Zw(ST2.zL + ST2.n * ST2.tread / 2)); hr.rotation.x = Math.atan2(ST2.n * ST2.tread / 100, ST2.n * R3); house.add(hr); }
+    hr.position.set(W(98.5), F2 + 0.9 + ST2.n * R3 / 2, Zw(ST2.zL + ST2.n * ST2.tread / 2)); hr.rotation.x = Math.atan2(ST2.n * ST2.tread / 100, ST2.n * R3); house.add(hr); }
+  for (const t of [0.12, 0.5, 0.88]) { const y = F2 + 0.9 + t * ST2.n * R3 - 0.03, z = ST2.zL + t * ST2.n * ST2.tread; bx(99.5, 105, y - 0.01, y + 0.01, z - 1, z + 1, M.steel, { cast: false }); }
   bx(115, 149, F2, F2 + 0.95, 375, 378, M.steel, { collide: true }); // guard at the 1F→2F arrival
   let linen, duvet;
   const bedBath = (F, Fw, tag, y0a) => {
@@ -923,7 +942,7 @@ window.__xie = { setMode, walk, W, WX, Zw, camera, controls, doorLog, colliders,
 (async function main() {
   try {
     initMaterials(); setupPipeline();
-    const [hdrBuf, presets, xiePresets] = await Promise.all([fetchB64('lebombo_1k.hdr'), fetch('../assets/tiles.json?v=' + VER).then(r => r.json()), fetch('tiles_xie.json?v=' + VER).then(r => r.json())]);
+    const [hdrBuf, presets, xiePresets] = await Promise.all([fetchB64('lebombo_1k.hdr'), Promise.all(['tiles_w1', 'tiles_w2'].map(n => fetch('../assets/' + n + '.json?v=' + VER).then(r => r.json()))).then(([p, q]) => ({ ...p, ...q })), fetch('tiles_xie.json?v=' + VER).then(r => r.json())]);
     Object.assign(presets, xiePresets);
     const photo = {};
     await Promise.all(Object.entries(presets).map(async ([k, p]) => {
