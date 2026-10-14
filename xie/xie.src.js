@@ -859,14 +859,14 @@ let mode = params.get('mode') || 'walk';
 let orbitLv = -1; const planLv = +(params.get('plan') || 0); let ortho = null;
 function setupPlan() { // top-down orthographic, ① left / Ⓐ bottom like the drawing; cut at 1.6 m above the floor
   renderer.clippingPlanes = planLv === 4 ? [] : [new THREE.Plane(new THREE.Vector3(0, -1, 0), [0, 1.6, 3.4 + 1.6, 6.6 + 1.6][planLv])];
-  ceilings.visible = false; arcs.visible = true; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
+  ceilings.visible = false; arcs.visible = true; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'floorBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
   const asp = innerWidth / innerHeight, hh = 7.75, hw = hh * asp; ortho = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.1, 100);
   ortho.up.set(0, 0, 1); ortho.position.set(0, 40, Zw(430)); ortho.lookAt(0, 0, Zw(430)); ortho.updateProjectionMatrix();
 }
 const elevV = params.get('elev');
 function setupElev() { // orthographic rear (南向) elevation: ① left, ② right; cut off the rear boundary wall
   renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), -Zw(-250))];
-  ceilings.visible = true; arcs.visible = false; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
+  ceilings.visible = true; arcs.visible = false; scene.background = new THREE.Color(0xffffff); ['toggle', 'modeBtn', 'floorBtn', 'hint', 'panel', 'joy'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
   const asp = innerWidth / innerHeight, hh = 6.2, hw = hh * asp; ortho = new THREE.OrthographicCamera(-hw, hw, hh, -hh, 0.1, 100);
   ortho.position.set(0, 5.4, Zw(-1500)); ortho.lookAt(0, 5.4, Zw(500)); ortho.updateProjectionMatrix();
 }
@@ -921,6 +921,15 @@ function stepWalk() {
   camera.position.set(walk.x, walk.y + walk.eye, walk.z);
   camera.rotation.order = 'YXZ'; camera.rotation.set(walk.pitch, walk.yaw, 0);
 }
+const floorCam = { on: false, h: 0.2, prevEye: 1.55, prevPitch: -0.05 };
+function sharpenTextures() { const a = renderer.capabilities.getMaxAnisotropy(); scene.traverse(o => { if (!o.material) return; (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => ['map', 'normalMap', 'roughnessMap', 'aoMap'].forEach(k => { const t = m[k]; if (t && t.anisotropy !== a) { t.anisotropy = a; if (t.generateMipmaps !== false && t.minFilter !== THREE.LinearFilter) t.minFilter = THREE.LinearMipmapLinearFilter; t.needsUpdate = true; } })); }); }
+function toggleFloorCam(on) {
+  if (on && mode !== 'walk') setMode('walk');
+  floorCam.on = on; $('floorBtn').classList.toggle('on', on); $('floorBtn').textContent = on ? '退出貼地' : '貼地看磚'; $('floorBox').style.display = on ? 'flex' : 'none';
+  if (on) { floorCam.prevEye = walk.eye; floorCam.prevPitch = walk.pitch; walk.eye = floorCam.h; walk.pitch = -0.25; camera.near = 0.01; sharpenTextures(); }
+  else { walk.eye = floorCam.prevEye; walk.pitch = floorCam.prevPitch; camera.near = 0.05; }
+  camera.updateProjectionMatrix();
+}
 let frameNo = 0;
 function animate() { requestAnimationFrame(animate); frameNo++; if (PT.active) return; if (ortho) { renderer.render(scene, ortho); return; } stepWalk(); { const ht = mode === 'walk' ? (walk.y > 8 ? '屋頂 RF｜+1010' : walk.y > 5 ? '三樓 3F｜層高 320 cm' : walk.y > 2 ? '二樓 2F｜層高 320 cm' : '一樓 1F｜層高 340 cm') : '俯瞰：紅線＝門扇開啟範圍'; if ($('hint') && $('hint').textContent !== ht) $('hint').textContent = ht; } if (mode === 'orbit') controls.update(); composer.render(); }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
@@ -940,7 +949,9 @@ function initXieUI() {
   $('groutW').oninput = e => $('groutWv').textContent = e.target.value + ' mm';
   $('groutW').onchange = e => { zones[zs.value].groutMM = +e.target.value; applyZone(zs.value); };
   $('groutC').onchange = e => { zones[zs.value].groutHex = e.target.value; applyZone(zs.value); };
-  $('modeBtn').onclick = () => setMode(mode === 'walk' ? 'orbit' : 'walk');
+  $('modeBtn').onclick = () => { if (floorCam.on) toggleFloorCam(false); setMode(mode === 'walk' ? 'orbit' : 'walk'); };
+  $('floorBtn').onclick = () => toggleFloorCam(!floorCam.on);
+  $('floorH').oninput = e => { floorCam.h = e.target.value / 100; $('floorHv').textContent = e.target.value + ' cm'; if (floorCam.on) walk.eye = floorCam.h; };
   document.querySelectorAll('.go').forEach(b => b.onclick = () => { const [x, z, yaw, lv = 1] = b.dataset.p.split(',').map(Number); setMode('walk'); walk.x = WX(x); walk.z = Zw(z); walk.yaw = -yaw; walk.pitch = -0.08; walk.y = floorHeightAt(walk.x, walk.z, [0, 0, 3.4, 6.6, 9.8][lv] || 0); });
   document.querySelectorAll('.ext').forEach(b => b.onclick = () => { orbitLv = 0; setMode('orbit'); });
   if ($('orbitLv')) $('orbitLv').onchange = e => { orbitLv = +e.target.value; setMode('orbit'); };

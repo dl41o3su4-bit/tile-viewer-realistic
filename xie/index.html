@@ -20,12 +20,15 @@
   #joy { position:absolute; left:30px; bottom:calc(40px + env(safe-area-inset-bottom)); width:100px; height:100px; border-radius:50%; border:2px solid rgba(255,255,255,.5); background:rgba(255,255,255,.08); z-index:5; pointer-events:none; }
   #hint { position:absolute; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); color:#fff; background:rgba(20,20,22,.6); padding:5px 10px; border-radius:8px; font-size:12px; z-index:5; }
   small { color:#aaa; }
+  #floorBtn { position:absolute; top:calc(54px + env(safe-area-inset-top)); right:10px; z-index:20; background:rgba(30,30,30,.85); color:#d9b26a; border:1px solid #d9b26a; border-radius:10px; padding:8px 12px; font-size:14px; }
+  #floorBtn.on { background:#d9b26a; color:#111; }
+  #floorBox { display:none; position:absolute; top:calc(96px + env(safe-area-inset-top)); right:10px; z-index:20; background:rgba(0,0,0,.7); color:#fff; border-radius:10px; padding:6px 10px; gap:6px; align-items:center; font-size:13px; }
 </style>
 </head>
 <body>
 <div id="loading"><span id="loadtxt">載入中…</span></div>
 <button id="toggle">☰ 面板</button>
-<button id="modeBtn">切換</button>
+<button id="modeBtn">切換</button><button id="floorBtn">貼地看磚</button><div id="floorBox"><span>眼高</span><input id="floorH" type="range" min="5" max="60" value="20"><span id="floorHv">20 cm</span></div>
 <div id="joy"></div>
 <div id="panel">
   <h3>謝雲卿案｜下營營和段598-3 透天三層</h3>
@@ -72,7 +75,7 @@
   <div><a href="../" style="color:#d9b26a">← 磁磚模擬器</a></div>
 </div>
 <div id="hint">一樓 1F｜層高 340 cm</div>
-<script>Promise.all([0,1].map(i=>fetch("y"+i+".js?v=9").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
+<script>Promise.all([0,1].map(i=>fetch("y"+i+".js?v=10").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
 <div id="ptBox" style="display:none;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:rgba(20,18,16,.82);color:#fff;padding:8px 12px;border-radius:10px;font-size:14px;z-index:20"><span id="ptTxt"></span> <button class="btn" id="ptSave">下載 PNG</button> <button class="btn" id="ptClose">關閉</button></div>
 </body>
 </html>
