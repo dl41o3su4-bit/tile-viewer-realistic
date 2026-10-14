@@ -44,6 +44,6 @@
   <small>單指旋轉 · 雙指縮放／平移<br>家具模型與 HDRI：Poly Haven (CC0)</small>
 </div>
 <div id="roomName"></div>
-<script type="module" src="app.js?v=4"></script>
+<script>Promise.all([0,1,2,3].map(i=>fetch("a"+i+".js?v=5").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
 </body>
 </html>
