@@ -65,11 +65,14 @@
   <div class="row">鋪法 <select id="pattern"><option value="grid">直鋪（對縫）</option><option value="half">1/2 錯縫</option><option value="third">1/3 錯縫</option></select></div>
   <div class="row">縫寬 <input type="range" id="groutW" min="1" max="10" step="0.5"><span id="groutWv"></span></div>
   <div class="row">縫色 <input type="color" id="groutC"></div>
+  <div class="row"><button class="btn" id="ptBtn">出效果圖（路徑追蹤）</button></div>
+  <div class="row">光照 <select id="lighting"><option value="bake">烘焙 GI 光照圖</option><option value="rt">即時光照</option></select></div>
   <div class="row">畫質 <select id="quality"><option value="high">高（電腦）</option><option value="mobile">手機</option></select></div>
   <small>依 p.3 一／二層平面圖（1:100）、p.4 參層／屋頂、p.5–7 立剖面、p.8 樓梯、p.7 剖面、p.11 材料粉刷表建模；磁磚以郭怡華案產品代用。<br>手機：左下拖曳＝移動，右側拖曳＝轉頭。電腦：WASD／方向鍵＋滑鼠拖曳。<br>家具：Poly Haven CC0。</small>
   <div><a href="../" style="color:#d9b26a">← 磁磚模擬器</a></div>
 </div>
 <div id="hint">一樓 1F｜層高 340 cm</div>
-<script>Promise.all([0,1,2,3].map(i=>fetch("x"+i+".js?v=7").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
+<script>Promise.all([0,1].map(i=>fetch("y"+i+".js?v=8").then(r=>r.text()))).then(p=>import(URL.createObjectURL(new Blob([p.join("")],{type:"text/javascript"}))));</script>
+<div id="ptBox" style="display:none;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:rgba(20,18,16,.82);color:#fff;padding:8px 12px;border-radius:10px;font-size:14px;z-index:20"><span id="ptTxt"></span> <button class="btn" id="ptSave">下載 PNG</button> <button class="btn" id="ptClose">關閉</button></div>
 </body>
 </html>
