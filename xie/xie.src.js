@@ -464,7 +464,7 @@ function applyZone(k) {
   if (k === 'stair') { const sl = z.style.startsWith('slab'); stairSlab.visible = sl; stairTile.visible = !sl; }
   for (const it of z.meshes) {
     const t = bakeTiles(it.w, it.d, z.style, z.pattern, z.groutMM, z.groutHex, it.seed);
-    const m = it.mesh.material; setBaked(m, t);
+    const m = (it.mesh.userData && it.mesh.userData.lmSrc) || it.mesh.material; setBaked(m, t); // baked-lighting mode: mesh.material is a lightmap clone; update the source, bakeSync() mirrors it
     m.roughness = st.rough; m.clearcoat = st.rough < 0.3 ? 0.5 : 0; m.clearcoatRoughness = 0.1; const sig = (m.clearcoat > 0) + '|' + !!m.map; if (m.userData.sig !== sig) { m.userData.sig = sig; m.needsUpdate = true; } // perf: recompile only when the shader variant changes
   }
   bakeSync();
