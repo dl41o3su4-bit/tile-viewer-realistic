@@ -800,7 +800,10 @@ async function buildHouse() {
   wallX(0, -20, 120, 20, 7.95, ext, [], 6.3); wallZ(117.5, 10, 230, 5, 7.8, ext, [], F3w); bx(-20, 122, 7.8, 7.95, 0, 240, M.concreteSlab);
   // 3F rear wall on grid Ⓐ' (z 230): DW1 240×220 to the terrace; W3 skin on terrace face
   wallX(230, 110, 465, 20, RF, paint, [{ a: 145, b: 385, sill: F3, head: F3 + 2.2 }], 6.3); windowAlongX(230, 145, 385, F3 + 0.01, F3 + 2.2); bx(203, 207, F3, F3 + 2.2, 227, 233, M.frame);
-  wallX(230, -5, 110, 20, RF, paint, [], 7.8); bx(110, 465, F3w, RF, 219.5, 220, stoneMat, { cast: false });
+  wallX(230, -5, 110, 20, RF, paint, [], 7.8); bx(110, 465, F3w, RF, 219.5, 220, stoneMat, { cast: false }).visible = false; // (kept hidden: lightmap atlas layout depends on the mesh list) — this full-height skin covered DW1
+  { const rt = new THREE.Group(); rt.userData.door = true; house.add(rt); // realtime-lit replacements (excluded from lightmap targets): W3 skin with the DW1 opening left open
+    bx(110, 145, F3w, RF, 219.5, 220, stoneMat, { cast: false, parent: rt }); bx(385, 465, F3w, RF, 219.5, 220, stoneMat, { cast: false, parent: rt });
+    bx(145, 385, F3 + 2.2, RF, 219.5, 220, stoneMat, { cast: false, parent: rt }); bx(145, 385, F3w, F3, 219.5, 220, stoneMat, { cast: false, parent: rt }); }
   // 3F guards around the stair void (L-shaped, as drawn)
   bx(110, 114, F3, F3 + 1.0, 240, 377, M.steel, { collide: true }); bx(110, 177, F3, F3 + 1.0, 373, 377, M.steel, { collide: true });
   bx(105, 110, F2 + 13 * R3, F2 + 13 * R3 + 0.9, 240, 375, M.steel, { collide: true });
@@ -808,7 +811,7 @@ async function buildHouse() {
   bedBath(F3, F3w, '3F', 5.6);
   // 家事間 (utility room 355 × 135+): work table 120×60×75 + shelving on ② wall
   bx(345, 465, F3 + 0.72, F3 + 0.75, 245, 305, M.oak); for (const [x, z] of [[347, 247], [461, 247], [347, 301], [461, 301]]) bx(x, x + 3, F3, F3 + 0.72, z, z + 3, M.darkwood); addCollider(345, 465, 245, 305, F3, F3 + 0.75);
-  bx(425, 465, F3, F3 + 1.8, 320, 500, M.cabinet, { collide: true });
+  bx(425, 465, F3, F3 + 1.8, 320, 500, M.cabinet).visible = false; // not on p.4 (user 10/17): hidden, kept only so the baked-lightmap mesh list stays identical
   // terrace (露臺): washer + utility sink on ② side (as drawn), clothes line, 爬梯 to roof
   bx(395, 460, F3w, F3w + 0.85, 50, 110, new THREE.MeshPhysicalMaterial({ color: 0xf1f1f1, roughness: 0.3, clearcoat: 0.5 }), { collide: true, r: 0.02 });
   bx(422, 462, F3w, F3w + 0.8, 14, 50, M.ceramic, { collide: true, r: 0.02 });
